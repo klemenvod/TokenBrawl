@@ -1,0 +1,802 @@
+LLM BOMBERMAN — FULL BUILD INSTRUCTIONS FOR CLAUDE CODE
+=========================================================
+
+
+OVERVIEW
+--------
+Build a 1v1 Bomberman game where two Claude LLM agents play autonomously against each other.
+The game runs in Python (FastAPI backend) with a browser frontend (vanilla JS + Canvas).
+Agents receive a text representation of game state, output a target position and action,
+and the game engine handles all execution. This is a spectator game — no human plays.
+
+
+TECH STACK
+----------
+- Python 3.11+
+- FastAPI + uvicorn
+- asyncio (everything async, no threading)
+- anthropic Python SDK
+- python-dotenv
+- vanilla JS + HTML5 Canvas (no frameworks)
+
+
+PROJECT STRUCTURE
+-----------------
+bomberman-ai/
+├── backend/
+│   ├── main.py
+│   ├── game/
+│   │   ├── __init__.py
+│   │   ├── state.py
+│   │   ├── engine.py
+│   │   ├── pathfinder.py
+│   │   └── serializer.py
+│   └── agents/
+│       ├── __init__.py
+│       └── llm_agent.py
+├── frontend/
+│   ├── index.html
+│   └── game.js
+├── .env
+└── requirements.txt
+
+
+=========================================================
+STEP 1 — game/state.py
+=========================================================
+
+Define all data structures. No logic here, pure dataclasses.
+
+    from dataclasses import dataclass, field
+    from enum import IntEnum
+    from typing import Optional
+
+    class Cell(IntEnum):
+        FLOOR = 0
+        WALL = 1
+        BRICK = 2
+
+    @dataclass
+    class Player:
+        id: str                    # "p1" or "p2"
+        pos: list[int]             # [x, y]
+        alive: bool = True
+        score: int = 0
+        blast_radius: int = 2
+
+    @dataclass
+    class Bomb:
+        pos: list[int]             # [x, y]
+        owner: str                 # "p1" or "p2"
+        fuse_ticks: int = 30       # 3 seconds at 10 ticks/s
+        blast_radius: int = 2
+
+    @dataclass
+    class Explosion:
+        cells: list[list[int]]     # list of [x, y]
+        ttl_ticks: int = 5         # 0.5 seconds
+
+    @dataclass
+    class GameState:
+        grid: list[list[int]]      # grid[y][x], 15 wide x 13 tall
+        players: dict[str, Player]
+        bombs: list[Bomb] = field(default_factory=list)
+        explosions: list[Explosion] = field(default_factory=list)
+        bricks_remaining: int = 0
+        tick: int = 0
+        time_remaining_ticks: int = 1800   # 3 min at 10 ticks/s
+        game_over: bool = False
+        winner: Optional[str] = None
+        win_reason: Optional[str] = None   # "bricks" | "kill" | "timer"
+        agent_thoughts: dict[str, str] = field(default_factory=dict)
+        agent_last_action: dict[str, str] = field(default_factory=dict)
+
+
+Also add a create_initial_state() function in the same file.
+
+Map layout rules:
+- Grid is 15 wide x 13 tall, accessed as grid[y][x]
+- Cell types: WALL=1 (indestructible), BRICK=2 (destructible), FLOOR=0
+- Border cells (x=0, x=14, y=0, y=12): always WALL
+- Internal fixed walls: every cell where x % 2 == 0 AND y % 2 == 0: always WALL
+- All remaining internal cells: eligible for BRICK or FLOOR
+- Place exactly 51 BRICK cells in eligible cells, randomly
+- Spawn zones must be brick-free: clear a 3x3 area around (1,1) and around (13,11)
+- After placing bricks, run a BFS connectivity check — both spawn points must be able
+  to reach each other through floor cells (bricks count as passable for this check,
+  walls do not). If not connected, remove bricks until they are.
+- P1 spawns at (1,1), P2 spawns at (13,11)
+
+    import random
+
+    def create_initial_state() -> GameState:
+        WIDTH, HEIGHT = 15, 13
+        grid = [[Cell.FLOOR] * WIDTH for _ in range(HEIGHT)]
+
+        # Place border and fixed internal walls
+        for y in range(HEIGHT):
+            for x in range(WIDTH):
+                if x == 0 or x == WIDTH-1 or y == 0 or y == HEIGHT-1:
+                    grid[y][x] = Cell.WALL
+                elif x % 2 == 0 and y % 2 == 0:
+                    grid[y][x] = Cell.WALL
+
+        # Collect eligible cells for bricks
+        spawn_zones = set()
+        for dy in range(3):
+            for dx in range(3):
+                spawn_zones.add((1+dx, 1+dy))
+                spawn_zones.add((13-dx, 11-dy))
+
+        eligible = [
+            (x, y)
+            for y in range(HEIGHT)
+            for x in range(WIDTH)
+            if grid[y][x] == Cell.FLOOR and (x, y) not in spawn_zones
+        ]
+
+        # Place 51 bricks ensuring connectivity
+        random.shuffle(eligible)
+        brick_cells = set()
+        for (x, y) in eligible:
+            if len(brick_cells) >= 51:
+                break
+            grid[y][x] = Cell.BRICK
+            brick_cells.add((x, y))
+            # connectivity check — BFS from (1,1) treating bricks as passable
+            if not _connected(grid, (1,1), (13,11), WIDTH, HEIGHT):
+                grid[y][x] = Cell.FLOOR
+                brick_cells.discard((x, y))
+
+        players = {
+            "p1": Player(id="p1", pos=[1, 1]),
+            "p2": Player(id="p2", pos=[13, 11]),
+        }
+
+        return GameState(
+            grid=grid,
+            players=players,
+            bricks_remaining=len(brick_cells),
+        )
+
+    def _connected(grid, start, end, W, H):
+        # BFS treating FLOOR and BRICK as passable, WALL as blocked
+        visited = set()
+        queue = [start]
+        visited.add(start)
+        while queue:
+            x, y = queue.pop(0)
+            if (x, y) == end:
+                return True
+            for dx, dy in [(0,1),(0,-1),(1,0),(-1,0)]:
+                nx, ny = x+dx, y+dy
+                if 0 <= nx < W and 0 <= ny < H and (nx,ny) not in visited:
+                    if grid[ny][nx] != Cell.WALL:
+                        visited.add((nx,ny))
+                        queue.append((nx,ny))
+        return False
+
+
+=========================================================
+STEP 2 — game/pathfinder.py
+=========================================================
+
+BFS pathfinder. Used by the engine to move players and by the serializer
+to compute reachable cells.
+
+    from collections import deque
+    from .state import Cell
+
+    def get_reachable(grid, start: list[int], bombs: list) -> dict:
+        """
+        BFS from start position.
+        Returns dict with:
+          - 'floor': list of reachable floor [x,y] positions
+          - 'bricks': list of [x,y] brick positions adjacent to reachable floor
+          - 'corridors': floor cells grouped by row and column for prompt readability
+        Bombs are treated as passable (player walks through them).
+        Only WALL blocks movement.
+        """
+        ...
+
+    def find_path(grid, start: list[int], target: list[int], bombs: list) -> list[list[int]]:
+        """
+        BFS path from start to target.
+        Returns list of [x,y] positions (not including start, including target).
+        Returns empty list if no path exists.
+        Walls block. Bombs are passable.
+        If target is a BRICK, path goes to the cell adjacent to the brick
+        (the last floor cell before it), not into the brick itself.
+        """
+        ...
+
+Implement both functions fully. For get_reachable, group floor cells into corridors:
+cells sharing the same y-value form a horizontal corridor entry, cells sharing x-value
+form a vertical corridor entry. Return them sorted for readability.
+
+
+=========================================================
+STEP 3 — game/engine.py
+=========================================================
+
+The game loop and all physics. This is the core file.
+
+--- Blast computation ---
+
+    def compute_blast_cells(grid, bomb: Bomb) -> list[list[int]]:
+        """
+        Returns all cells hit by this bomb's explosion.
+        Cross pattern: extends blast_radius cells in each of 4 directions.
+        Stops at (and includes) first BRICK hit in each direction.
+        Stops before (does not include) WALL cells.
+        Always includes bomb's own cell.
+        """
+
+--- Tick function ---
+
+    async def tick(state: GameState) -> GameState:
+        """
+        One game tick (called every 100ms).
+        Order of operations:
+        1. Decrement all bomb fuses by 1
+        2. Collect bombs where fuse_ticks <= 0
+        3. For each exploding bomb:
+           a. Compute blast cells
+           b. Destroy any BRICK in blast cells -> grid[y][x] = FLOOR, score +1 to bomb owner
+           c. Check if any player is in blast cells -> mark player dead
+           d. Create Explosion object with those cells, ttl=5
+           e. Remove bomb from state.bombs
+        4. Decrement all explosion TTLs, remove expired ones
+        5. Decrement time_remaining_ticks
+        6. Update bricks_remaining count
+        7. Check win conditions (in priority order):
+           a. Any player dead -> winner is the other player, win_reason="kill"
+           b. bricks_remaining == 0 -> winner is higher score, win_reason="bricks"
+           c. time_remaining_ticks <= 0 -> winner is higher score, win_reason="timer"
+           d. Tie-breaking: if scores equal on bricks/timer, winner="draw"
+        8. Increment tick counter
+        9. Return updated state
+        """
+
+--- Movement execution ---
+
+    def execute_move(state: GameState, player_id: str, path: list[list[int]], place_bomb: bool) -> GameState:
+        """
+        Called by the agent worker when it has a path to execute.
+        Moves player one step along path.
+        When player reaches end of path:
+          - if place_bomb=True, place bomb at final position
+        Returns updated state.
+        This is called once per tick while the player is in motion.
+        """
+
+--- Game loop ---
+
+    async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict):
+        """
+        Main loop. Runs until state.game_over = True.
+        Each iteration:
+        1. Check action_queues for each player — if new action arrived and player
+           is not currently moving, start executing it (compute path, store on player)
+        2. If player is currently moving, advance one step along stored path
+        3. Call tick(state)
+        4. Call broadcast_fn(state)
+        5. asyncio.sleep(0.1)
+        """
+
+Store each player's current movement state (path remaining, place_bomb flag) as a
+simple dict alongside the GameState, not inside the dataclass — keeps state serializable.
+
+
+=========================================================
+STEP 4 — game/serializer.py
+=========================================================
+
+Produces the full LLM prompt from game state.
+This is the most important file for agent quality.
+
+--- ASCII grid character mapping ---
+
+    #   -> WALL
+    b   -> BRICK
+    .   -> reachable FLOOR (from this player's position)
+    ' ' -> (space) unreachable FLOOR
+    1   -> this player's position
+    2   -> enemy player's position
+    *   -> bomb owned by this player
+    !   -> bomb owned by enemy
+    X   -> explosion cell
+
+--- Corridor grouping ---
+
+Group reachable floor cells into human-readable corridors:
+
+    Reachable paths from your position:
+      -> East along row 1:  (2,1) (3,1) (4,1) (5,1)
+      -> South along col 1: (1,2) (1,3) (1,4)
+      -> Row 3 (via col 1): (2,3) (3,3) (4,3)
+
+--- Brick targets ---
+
+List each reachable brick with a plain English description of what bombing it opens:
+
+    Bricks you can target:
+      (6,1) -> opens corridor east along row 1
+      (1,5) -> opens corridor south along col 1
+      (4,3) -> opens path toward center
+
+To generate the description: after a hypothetical brick removal, check which new floor
+cells become reachable. Describe the direction and approximate gain.
+
+--- Blast danger ---
+
+For each active bomb, pre-compute blast cells and check:
+- Is the player's current position in blast range?
+- Is any reachable target in blast range?
+
+    DANGER:
+      Enemy bomb at (5,3) explodes in 1.8s
+      Blast will hit: (3,3)(4,3)(5,3)(6,3)(7,3)(5,1)(5,2)(5,4)(5,5)
+      Your position (1,1) is SAFE
+      Target (4,3) is in blast zone — avoid
+
+--- Score situation ---
+
+    def score_situation(state, player_id) -> str:
+        me = state.players[player_id].score
+        enemy = state.players[other(player_id)].score
+        diff = me - enemy
+        remaining = state.bricks_remaining
+
+        if diff > 0 and remaining < diff:
+            return f"You are WINNING by {diff}. Enemy cannot catch up on bricks. Play safe, avoid combat."
+        elif diff < 0 and remaining < abs(diff):
+            return f"You are LOSING by {abs(diff)} with only {remaining} bricks left. You CANNOT win on bricks. You must kill the enemy to win."
+        elif diff < 0:
+            return f"You are LOSING by {abs(diff)}. {remaining} bricks remain — you can still catch up."
+        elif diff > 0:
+            return f"You are WINNING by {diff}. {remaining} bricks remain. Keep farming."
+        else:
+            return f"Score is TIED. {remaining} bricks remain."
+
+--- Full prompt template ---
+
+    def serialize(state: GameState, player_id: str) -> str:
+        return f"""
+    === BOMBER-{player_id[-1]} | Tick {state.tick} ===
+    Score: YOU={me_score}  ENEMY={enemy_score}  |  Bricks remaining: {state.bricks_remaining}  |  Time: {format_time(state.time_remaining_ticks)}
+
+    MAP (15x13):
+    {ascii_grid}
+    Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy  *=your bomb  !=enemy bomb  X=explosion
+
+    REACHABLE PATHS:
+    {corridor_text}
+
+    BRICK TARGETS:
+    {brick_targets_text}
+
+    ACTIVE BOMBS:
+    {bombs_text}
+
+    DANGER:
+    {danger_text}
+
+    SCORE SITUATION:
+    {score_situation_text}
+
+    Choose a target from BRICK TARGETS or REACHABLE PATHS above.
+    Respond with ONE JSON line only:
+    {{"reasoning": "one sentence", "action": "move_and_bomb", "target": [x, y]}}
+
+    Valid actions:
+      move          -> move to target, do not place bomb
+      move_and_bomb -> move to target, place bomb on arrival
+      bomb_here     -> place bomb at current position (no target needed)
+      wait          -> do nothing this turn
+
+    Rules:
+      - Target must be in reachable paths or brick targets list
+      - You will die if caught in any blast radius — plan your escape before bombing
+      - Killing the enemy wins instantly regardless of score
+      - Destroying bricks scores +1 per brick
+    """
+
+
+=========================================================
+STEP 5 — agents/llm_agent.py
+=========================================================
+
+The async LLM worker. One instance per player, runs as an asyncio task.
+
+    import asyncio
+    import json
+    import anthropic
+    from ..game.state import GameState
+    from ..game.serializer import serialize
+    from ..game.pathfinder import find_path, get_reachable
+
+    SYSTEM_PROMPT = """
+    You are an AI agent playing a 1v1 Bomberman game. Your goal is to score points by
+    destroying brick blocks with bombs. You win by:
+      1. Having more bricks destroyed than your opponent when all bricks are gone
+      2. Killing your opponent with a bomb (instant win)
+      3. Having more points when the 3-minute timer expires
+
+    You receive the game state as text and must respond with a single JSON line choosing
+    your next action. Be strategic: farm bricks efficiently, avoid your own explosions,
+    and consider going for a kill if you are losing and cannot win on bricks alone.
+    Keep your reasoning to one concise sentence.
+    """
+
+    class LLMAgent:
+        def __init__(self, player_id: str, state_ref: list, action_queue: asyncio.Queue, client):
+            self.player_id = player_id
+            self.state_ref = state_ref        # mutable list holding current GameState, [state]
+            self.action_queue = action_queue
+            self.client = client
+            self.last_prompt_tick = -1
+            self.running = True
+
+        async def run(self):
+            while self.running:
+                state: GameState = self.state_ref[0]
+
+                if state.game_over:
+                    break
+
+                # Only re-prompt if state has meaningfully changed
+                if not self._should_reprompt(state):
+                    await asyncio.sleep(0.05)
+                    continue
+
+                prompt = serialize(state, self.player_id)
+                self.last_prompt_tick = state.tick
+
+                try:
+                    action = await asyncio.wait_for(
+                        self._call_llm(prompt),
+                        timeout=2.0
+                    )
+                except asyncio.TimeoutError:
+                    action = {"action": "wait", "reasoning": "timeout"}
+                except Exception as e:
+                    action = {"action": "wait", "reasoning": f"error: {e}"}
+
+                if action:
+                    await self.action_queue.put(action)
+
+        def _should_reprompt(self, state: GameState) -> bool:
+            """
+            Re-prompt if:
+            - Action queue is empty (agent has nothing queued)
+            - AND at least one of:
+              a. Player position changed since last prompt
+              b. A bomb exploded since last prompt
+              c. A brick was destroyed since last prompt
+              d. 10 ticks have elapsed since last prompt (force refresh)
+            """
+            if not self.action_queue.empty():
+                return False
+            ticks_since = state.tick - self.last_prompt_tick
+            return ticks_since >= 10 or ticks_since == 0
+
+        async def _call_llm(self, prompt: str) -> dict:
+            response = await self.client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=256,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = response.content[0].text.strip()
+            # Extract JSON — handle cases where model adds extra text
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start == -1 or end == 0:
+                return {"action": "wait", "reasoning": "parse error"}
+            parsed = json.loads(text[start:end])
+            # Validate action field
+            valid_actions = {"move", "move_and_bomb", "bomb_here", "wait"}
+            if parsed.get("action") not in valid_actions:
+                parsed["action"] = "wait"
+            return parsed
+
+        def stop(self):
+            self.running = False
+
+
+=========================================================
+STEP 6 — main.py
+=========================================================
+
+FastAPI app, WebSocket endpoint, game orchestration.
+
+    import asyncio
+    import json
+    import os
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi.staticfiles import StaticFiles
+    from fastapi.middleware.cors import CORSMiddleware
+    from dotenv import load_dotenv
+    import anthropic
+
+    from .game.state import create_initial_state
+    from .game.engine import run_game_loop
+    from .agents.llm_agent import LLMAgent
+
+    load_dotenv()
+    app = FastAPI()
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+    connected_clients: list[WebSocket] = []
+
+    async def broadcast(state):
+        """Serialize state to JSON and send to all connected WebSocket clients."""
+        payload = state_to_dict(state)
+        msg = json.dumps(payload)
+        disconnected = []
+        for ws in connected_clients:
+            try:
+                await ws.send_text(msg)
+            except:
+                disconnected.append(ws)
+        for ws in disconnected:
+            connected_clients.remove(ws)
+
+    @app.websocket("/ws")
+    async def websocket_endpoint(ws: WebSocket):
+        await ws.accept()
+        connected_clients.append(ws)
+        try:
+            while True:
+                await ws.receive_text()   # keep alive, ignore input
+        except WebSocketDisconnect:
+            connected_clients.remove(ws)
+
+    @app.on_event("startup")
+    async def startup():
+        asyncio.create_task(start_game())
+
+    async def start_game():
+        await asyncio.sleep(1)   # wait for server to be ready
+
+        client = anthropic.AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        state = create_initial_state()
+        state_ref = [state]   # mutable container so agents always see latest state
+
+        action_queues = {
+            "p1": asyncio.Queue(),
+            "p2": asyncio.Queue(),
+        }
+
+        agents = {
+            "p1": LLMAgent("p1", state_ref, action_queues["p1"], client),
+            "p2": LLMAgent("p2", state_ref, action_queues["p2"], client),
+        }
+
+        tasks = [
+            asyncio.create_task(agents["p1"].run()),
+            asyncio.create_task(agents["p2"].run()),
+        ]
+
+        await run_game_loop(state_ref, broadcast, action_queues)
+
+        for agent in agents.values():
+            agent.stop()
+        for task in tasks:
+            task.cancel()
+
+
+=========================================================
+STEP 7 — frontend/index.html
+=========================================================
+
+Single page. Contains:
+- A <canvas id="game"> sized 720x624 (48px x 15 tiles wide, 48px x 13 tiles tall)
+- HUD div below canvas showing scores, bricks remaining, time
+- Two agent thought panels side by side below HUD
+- Loads game.js as a module
+
+Layout:
+
+    +------------------------------------------+
+    |           canvas 720x624                  |
+    +------------------------------------------+
+    | BOMBER-1  Score:7   Bricks:37   2:21  Score:12  BOMBER-2 |
+    +---------------------+--------------------+
+    | P1 thinking...      | P2 thinking...     |
+    | "move right to      | "enemy far, bomb   |
+    |  reach brick"       |  brick cluster"    |
+    +---------------------+--------------------+
+
+
+=========================================================
+STEP 8 — frontend/game.js
+=========================================================
+
+WebSocket client and canvas renderer.
+
+--- WebSocket ---
+
+    const ws = new WebSocket("ws://localhost:8000/ws")
+    ws.onmessage = (event) => {
+        const state = JSON.parse(event.data)
+        render(state)
+        updateHUD(state)
+        updateThoughts(state)
+    }
+    // Auto-reconnect on close
+    ws.onclose = () => setTimeout(() => location.reload(), 2000)
+
+--- Tile rendering (draw order matters) ---
+
+    1. Floor:      solid green #4a7c3f
+    2. Walls:      grey #888 with slight border
+    3. Bricks:     brown #8b4513 with highlight edge
+    4. Bombs:      black circle, white fuse dot, pulse animation based on fuse_ticks
+    5. Explosions: bright orange #ff6600 / yellow #ffcc00 cross, opacity based on ttl
+    6. Players:    filled circle (P1=#7c3aed purple, P2=#e85d04 coral), white label
+
+Tile size: 48px. Canvas: 720x624.
+
+--- Bomb pulse animation ---
+
+Bombs should visually pulse faster as fuse runs out.
+Use fuse_ticks / 30 as a ratio — at 1.0 slow pulse, at 0.1 rapid pulse.
+Implement with canvas Date.now() oscillation.
+
+--- Game over overlay ---
+
+When state.game_over = true, draw a semi-transparent overlay on the canvas:
+
+    BOMBER-1 WINS!
+    Reason: destroyed most bricks
+    Final score: 18 - 12
+
+--- HUD update ---
+
+    function updateHUD(state) {
+        // Update score displays, bricks remaining, time remaining
+        // Flash score when it changes (brief yellow highlight)
+        // Turn time red when under 30 seconds
+    }
+
+--- Thought panels ---
+
+    function updateThoughts(state) {
+        // Update text content of each thought panel
+        // Only update if thought text changed (avoid flicker)
+        // Show "thinking..." with animated dots between LLM responses
+        // Show last action taken below the reasoning text
+    }
+
+
+=========================================================
+STEP 9 — requirements.txt
+=========================================================
+
+    fastapi
+    uvicorn[standard]
+    anthropic
+    python-dotenv
+    websockets
+
+
+=========================================================
+STEP 10 — .env
+=========================================================
+
+    ANTHROPIC_API_KEY=your_key_here
+
+
+=========================================================
+CRITICAL IMPLEMENTATION RULES
+=========================================================
+
+These are the things most likely to go wrong. Follow them precisely.
+
+--- Async rules ---
+
+- Never use time.sleep() anywhere — always await asyncio.sleep()
+- Game loop, both LLM agents, and WebSocket all run as concurrent asyncio tasks
+- Never await an LLM call from inside the game loop — agents are separate tasks
+  communicating via queues
+- state_ref = [state] pattern: agents hold a reference to this list, engine updates
+  state_ref[0] each tick, agents always read state_ref[0] for latest state
+
+--- Game engine rules ---
+
+- Process bomb chain reactions: if explosion A destroys a brick that has a bomb on it,
+  that bomb also explodes immediately. Implement as a queue — explode bomb -> check if
+  any other bomb is in blast cells -> if yes add to explosion queue
+- Player death is checked after all explosions in a tick are processed, not mid-explosion
+- Brick score goes to the bomb's owner even if the owner is already dead
+- A player cannot place a bomb if they already have one active (v1: max 1 bomb per player)
+
+--- Pathfinder rules ---
+
+- Walls block movement entirely
+- Bombs do NOT block movement (player can walk through bombs)
+- Bricks block movement — path stops at the cell before a brick
+- If target is a brick, pathfinder returns path to the adjacent floor cell
+- If no path exists, return empty list — engine treats this as wait
+
+--- Agent rules ---
+
+- Validate target coordinates before executing: must be in reachable set from current
+  position. If invalid, treat as wait
+- Store agent reasoning in state.agent_thoughts[player_id] so it gets broadcast
+  and shown in UI
+- Tag each LLM call with the tick number, ignore responses older than 15 ticks
+- On any JSON parse error, default to wait — never crash
+
+--- Serializer rules ---
+
+- Reachable cells are computed fresh every prompt from current player position
+- Blast cells for all active bombs are pre-computed and listed explicitly
+- Danger warning must explicitly name whether the player's current position and each
+  candidate target is safe or in blast range
+- Score situation text must explicitly say "you CANNOT win on bricks alone" when
+  mathematically true (bricks remaining < score deficit)
+
+--- WebSocket broadcast ---
+
+The state_to_dict() function must serialize the full GameState to a JSON-compatible dict.
+Include: grid (2D array of ints), players (dict with pos/alive/score), bombs (list with
+pos/owner/fuse_ticks/blast_radius), explosions (list with cells/ttl_ticks),
+bricks_remaining, time_remaining_ticks, tick, game_over, winner, win_reason,
+agent_thoughts, agent_last_action.
+
+
+=========================================================
+RUN INSTRUCTIONS
+=========================================================
+
+    cd backend
+    pip install -r requirements.txt
+    uvicorn main:app --reload --port 8000
+    # open http://localhost:8000/static/index.html
+
+
+=========================================================
+GAME RULES SUMMARY (for reference)
+=========================================================
+
+Win conditions (checked in this order each tick):
+  1. Kill enemy with bomb -> instant win regardless of score, win_reason="kill"
+  2. All 51 bricks destroyed -> higher score wins, win_reason="bricks"
+  3. 3-minute timer expires -> higher score wins, win_reason="timer"
+  4. Tied score on condition 2 or 3 -> winner="draw"
+
+Scoring:
+  +1 point per brick destroyed (awarded to bomb owner)
+  No points for kills — kill is just an instant win condition
+
+Map:
+  15x13 grid
+  Indestructible walls: all borders + internal cells where x%2==0 and y%2==0
+  51 destructible bricks placed randomly (connectivity guaranteed)
+  P1 spawns at (1,1), P2 spawns at (13,11)
+  3x3 spawn zones are always brick-free
+
+Agent actions:
+  move          -> pathfind to target, no bomb
+  move_and_bomb -> pathfind to target, place bomb on arrival
+  bomb_here     -> place bomb at current position immediately
+  wait          -> do nothing
+
+Agent input (each decision cycle, after previous action fully resolved):
+  - ASCII map with reachability marking
+  - Structured reachable paths grouped by corridor
+  - Brick targets with consequence descriptions
+  - Pre-computed blast zones for all active bombs
+  - Explicit danger warnings for current position and candidate targets
+  - Score situation with plain English strategic guidance
+
+Timing:
+  Game ticks at 10 ticks/second (100ms per tick)
+  Bomb fuse: 30 ticks (3 seconds)
+  Explosion TTL: 5 ticks (0.5 seconds)
+  LLM timeout: 2 seconds (default to wait on timeout)
+  Max 1 bomb per player active at a time (v1)
