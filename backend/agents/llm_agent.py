@@ -1,9 +1,12 @@
 import asyncio
 import json
+import logging
 import openai
 from ..game.state import GameState
 from ..game.serializer import serialize
 from ..game.pathfinder import find_path, get_reachable
+
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are an AI agent playing a 1v1 Bomberman game. Your goal is to score points by
 destroying brick blocks with bombs. You win by:
@@ -48,11 +51,13 @@ class LLMAgent:
             try:
                 action = await asyncio.wait_for(
                     self._call_llm(prompt),
-                    timeout=2.0
+                    timeout=10.0
                 )
             except asyncio.TimeoutError:
+                logger.warning("[%s] LLM call timed out (10s)", self.player_id)
                 action = {"action": "wait", "reasoning": "timeout"}
             except Exception as e:
+                logger.error("[%s] LLM call failed: %s", self.player_id, e, exc_info=True)
                 action = {"action": "wait", "reasoning": f"error: {e}"}
 
             # Ignore stale responses (older than 15 ticks)
@@ -77,24 +82,33 @@ class LLMAgent:
         return ticks_since >= 10 or self.last_prompt_tick == -1
 
     async def _call_llm(self, prompt: str) -> dict:
+        logger.info("[%s] Sending LLM request (model: %s)", self.player_id, "openai/gpt-5.4")
         response = await self.client.chat.completions.create(
-            model="anthropic/claude-sonnet-4",
-            max_tokens=256,
+            model="openai/gpt-5.4",
+            max_tokens=2048,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ]
         )
-        text = response.choices[0].message.content.strip()
+        content = response.choices[0].message.content
+        if not content:
+            logger.warning("[%s] LLM returned empty/null content. Full response: %s", self.player_id, response)
+            return {"action": "wait", "reasoning": "empty response from model"}
+        text = content.strip()
+        logger.info("[%s] LLM raw response: %s", self.player_id, text[:200])
         # Extract JSON — handle cases where model adds extra text
         start = text.find("{")
         end = text.rfind("}") + 1
         if start == -1 or end == 0:
+            logger.warning("[%s] No JSON found in response: %s", self.player_id, text[:200])
             return {"action": "wait", "reasoning": "parse error"}
         parsed = json.loads(text[start:end])
+        logger.info("[%s] Parsed action: %s", self.player_id, parsed)
         # Validate action field
         valid_actions = {"move", "move_and_bomb", "bomb_here", "wait"}
         if parsed.get("action") not in valid_actions:
+            logger.warning("[%s] Invalid action '%s', defaulting to wait", self.player_id, parsed.get("action"))
             parsed["action"] = "wait"
         return parsed
 

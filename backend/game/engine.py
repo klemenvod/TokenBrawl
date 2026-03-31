@@ -99,6 +99,12 @@ async def tick(state: GameState) -> GameState:
     for pid, player in state.players.items():
         if player.alive and tuple(player.pos) in blast_set:
             player.alive = False
+            # Build death log: last actions leading to death
+            state.death_log[pid] = {
+                "killed_at": list(player.pos),
+                "tick": state.tick,
+                "last_actions": list(state.agent_action_history.get(pid, [])),
+            }
 
     # 4. Decrement explosion TTLs, remove expired
     state.explosions = [e for e in state.explosions if e.ttl_ticks > 1]
@@ -176,6 +182,12 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
     if ms is None:
         return
 
+    # Move one step every 3 ticks
+    ms["move_cooldown"] = ms.get("move_cooldown", 0) - 1
+    if ms["move_cooldown"] > 0:
+        return
+    ms["move_cooldown"] = 3
+
     remaining_path = ms["path"]
     if not remaining_path:
         # Arrived at destination
@@ -186,7 +198,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=30,
+                    fuse_ticks=40,
                     blast_radius=player.blast_radius,
                 ))
         # Clear movement
@@ -206,7 +218,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=30,
+                    fuse_ticks=40,
                     blast_radius=player.blast_radius,
                 ))
         movement_state[player_id] = None
@@ -242,6 +254,17 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict):
                 state.agent_thoughts[pid] = reasoning
                 state.agent_last_action[pid] = action_type
 
+                # Track action history (keep last 5)
+                state.agent_action_history[pid].append({
+                    "tick": state.tick,
+                    "pos": list(state.players[pid].pos),
+                    "action": action_type,
+                    "target": target,
+                    "reasoning": reasoning,
+                })
+                if len(state.agent_action_history[pid]) > 5:
+                    state.agent_action_history[pid].pop(0)
+
                 if action_type == "wait":
                     continue
 
@@ -252,7 +275,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict):
                         state.bombs.append(Bomb(
                             pos=list(state.players[pid].pos),
                             owner=pid,
-                            fuse_ticks=30,
+                            fuse_ticks=40,
                             blast_radius=state.players[pid].blast_radius,
                         ))
                     continue

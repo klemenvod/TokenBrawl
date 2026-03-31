@@ -26,12 +26,25 @@ const COLOR_EXPLOSION2 = "#ffcc00";
 let lastState = null;
 let lastP1Score = 0;
 let lastP2Score = 0;
+let currentWS = null;
+
+// --- Restart Button ---
+const restartBtn = document.getElementById("restart-btn");
+restartBtn.addEventListener("click", () => {
+    if (currentWS && currentWS.readyState === WebSocket.OPEN) {
+        currentWS.send("restart");
+        restartBtn.style.display = "none";
+        deathLogShown = false;
+        document.getElementById("death-log").style.display = "none";
+    }
+});
 
 // --- WebSocket ---
 function connectWS() {
     const protocol = location.protocol === "https:" ? "wss:" : "ws:";
     const ws = new WebSocket(`${protocol}//${location.host}/ws`);
     const statusEl = document.getElementById("connection-status");
+    currentWS = ws;
 
     ws.onopen = () => {
         statusEl.textContent = "Connected";
@@ -44,6 +57,13 @@ function connectWS() {
         render(state);
         updateHUD(state);
         updateThoughts(state);
+        updateDeathLog(state);
+
+        if (state.game_over) {
+            restartBtn.style.display = "block";
+        } else {
+            restartBtn.style.display = "none";
+        }
     };
 
     ws.onclose = () => {
@@ -123,25 +143,32 @@ function render(state) {
     for (const bomb of state.bombs) {
         const bx = bomb.pos[0] * TILE + TILE / 2;
         const by = bomb.pos[1] * TILE + TILE / 2;
-        const fuseRatio = bomb.fuse_ticks / 30;
-        // Pulse speed increases as fuse decreases
-        const pulseFreq = 2 + (1 - fuseRatio) * 15;
-        const pulseSize = Math.sin(now * pulseFreq / 1000 * Math.PI * 2) * 3;
-        const radius = TILE / 3 + pulseSize;
+        const fuseRatio = bomb.fuse_ticks / 40;
+
+        // Static bomb circle (no pulse animation)
+        const radius = TILE / 3;
 
         ctx.beginPath();
-        ctx.arc(bx, by, Math.max(radius, 5), 0, Math.PI * 2);
-        ctx.fillStyle = COLOR_BOMB;
+        ctx.arc(bx, by, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#333333";
         ctx.fill();
         ctx.strokeStyle = bomb.owner === "p1" ? COLOR_P1 : COLOR_P2;
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // Fuse dot
-        ctx.beginPath();
-        ctx.arc(bx, by - radius + 2, 3, 0, Math.PI * 2);
-        ctx.fillStyle = fuseRatio < 0.3 ? "#ff3333" : COLOR_FUSE;
-        ctx.fill();
+        // Countdown timer text
+        const secondsLeft = Math.ceil(bomb.fuse_ticks / 10);
+        const timerColor = fuseRatio < 0.3 ? "#ff3333" : "#ffffff";
+        ctx.font = "bold 18px Courier New";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        // Dark outline for readability
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 3;
+        ctx.strokeText(secondsLeft, bx, by);
+        // Fill text on top
+        ctx.fillStyle = timerColor;
+        ctx.fillText(secondsLeft, bx, by);
     }
 
     // 3. Draw explosions
@@ -327,6 +354,45 @@ function updateThoughts(state) {
 
     p1ActionEl.textContent = p1Action ? `Action: ${p1Action}` : "";
     p2ActionEl.textContent = p2Action ? `Action: ${p2Action}` : "";
+}
+
+// --- Death Log ---
+let deathLogShown = false;
+
+function updateDeathLog(state) {
+    const deathLogEl = document.getElementById("death-log");
+
+    if (!state.death_log || Object.keys(state.death_log).length === 0) {
+        if (!state.game_over) {
+            deathLogEl.style.display = "none";
+            deathLogShown = false;
+        }
+        return;
+    }
+
+    if (deathLogShown) return;
+    deathLogShown = true;
+
+    let html = "<h3>DEATH LOG</h3>";
+
+    for (const [pid, log] of Object.entries(state.death_log)) {
+        const label = pid === "p1" ? "BOMBER-1" : "BOMBER-2";
+        const color = pid === "p1" ? "#7c3aed" : "#e85d04";
+        html += `<div class="death-entry">`;
+        html += `<div style="color:${color};font-weight:bold">${label} killed at (${log.killed_at[0]},${log.killed_at[1]}) on tick ${log.tick}</div>`;
+
+        if (log.last_actions && log.last_actions.length > 0) {
+            html += `<div style="margin-top:4px;color:#ff9999">Last actions:</div>`;
+            for (const a of log.last_actions) {
+                const targetStr = a.target ? ` → (${a.target[0]},${a.target[1]})` : "";
+                html += `<div class="action-line">  tick ${a.tick} | pos (${a.pos[0]},${a.pos[1]}) | ${a.action}${targetStr} | "${a.reasoning}"</div>`;
+            }
+        }
+        html += `</div>`;
+    }
+
+    deathLogEl.innerHTML = html;
+    deathLogEl.style.display = "block";
 }
 
 // Animation loop for smooth bomb pulsing

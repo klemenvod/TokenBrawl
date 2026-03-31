@@ -47,6 +47,8 @@ class GameState:
     win_reason: Optional[str] = None   # "bricks" | "kill" | "timer"
     agent_thoughts: dict[str, str] = field(default_factory=dict)
     agent_last_action: dict[str, str] = field(default_factory=dict)
+    agent_action_history: dict[str, list] = field(default_factory=lambda: {"p1": [], "p2": []})
+    death_log: dict[str, list] = field(default_factory=dict)
 
 
 def create_initial_state() -> GameState:

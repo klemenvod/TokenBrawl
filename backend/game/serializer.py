@@ -152,13 +152,21 @@ def _build_bombs_text(state: GameState, player_id: str) -> str:
     return "\n".join(lines)
 
 
-def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list) -> str:
-    """Pre-compute blast danger for player position and targets."""
+def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
+    """Pre-compute blast danger for player position and targets, including safe escape cells."""
     if not state.bombs:
         return "  No threats"
 
     me = state.players[player_id]
     my_pos = (me.pos[0], me.pos[1])
+
+    # Collect ALL blast cells from all active bombs
+    all_danger = set()
+    for b in state.bombs:
+        blast = compute_blast_cells(state.grid, b)
+        for c in blast:
+            all_danger.add((c[0], c[1]))
+
     lines = []
 
     for b in state.bombs:
@@ -172,7 +180,7 @@ def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list)
         lines.append(f"    Blast will hit: {blast_str}")
 
         if my_pos in blast_set:
-            lines.append(f"    Your position ({my_pos[0]},{my_pos[1]}) is IN DANGER — MOVE!")
+            lines.append(f"    ⚠ Your position ({my_pos[0]},{my_pos[1]}) is IN DANGER — MOVE NOW!")
         else:
             lines.append(f"    Your position ({my_pos[0]},{my_pos[1]}) is SAFE")
 
@@ -181,6 +189,25 @@ def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list)
             bx, by = brick
             if (bx, by) in blast_set:
                 lines.append(f"    Target ({bx},{by}) is in blast zone — avoid")
+
+    # Compute safe escape cells: reachable adjacent cells NOT in any blast zone
+    safe_cells = []
+    for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+        nx, ny = my_pos[0] + dx, my_pos[1] + dy
+        if (nx, ny) in reachable_floor_set and (nx, ny) not in all_danger:
+            safe_cells.append((nx, ny))
+
+    if my_pos in all_danger:
+        if safe_cells:
+            safe_str = " ".join(f"({c[0]},{c[1]})" for c in safe_cells)
+            lines.append(f"  SAFE ESCAPE CELLS (move here!): {safe_str}")
+        else:
+            lines.append(f"  WARNING: No safe adjacent cells! Move further away!")
+    else:
+        danger_adjacent = [(my_pos[0] + dx, my_pos[1] + dy) for dx, dy in [(0,1),(0,-1),(1,0),(-1,0)] if (my_pos[0]+dx, my_pos[1]+dy) in all_danger]
+        if danger_adjacent:
+            da_str = " ".join(f"({c[0]},{c[1]})" for c in danger_adjacent)
+            lines.append(f"  AVOID THESE CELLS (in blast zone): {da_str}")
 
     return "\n".join(lines)
 
@@ -219,7 +246,7 @@ def serialize(state: GameState, player_id: str) -> str:
     corridor_text = _build_corridor_text(reachable["corridors"], me.pos)
     brick_targets_text = _build_brick_targets(state, player_id, reachable["bricks"], reachable_floor_set)
     bombs_text = _build_bombs_text(state, player_id)
-    danger_text = _build_danger_text(state, player_id, reachable["bricks"])
+    danger_text = _build_danger_text(state, player_id, reachable["bricks"], reachable_floor_set)
     score_text = score_situation(state, player_id)
     time_str = _format_time(state.time_remaining_ticks)
 
@@ -245,9 +272,12 @@ DANGER:
 SCORE SITUATION:
 {score_text}
 
-Choose a target from BRICK TARGETS or REACHABLE PATHS above.
-Respond with ONE JSON line only:
-{{"reasoning": "one sentence", "action": "move_and_bomb", "target": [x, y]}}
+Choose ONE action. Valid actions:
+  - "move"          — move to target: {{"reasoning": "...", "action": "move", "target": [x, y]}}
+  - "move_and_bomb" — move to target then place bomb: {{"reasoning": "...", "action": "move_and_bomb", "target": [x, y]}}
+  - "bomb_here"     — place bomb at current position: {{"reasoning": "...", "action": "bomb_here"}}
+  - "wait"          — stay in place, do nothing: {{"reasoning": "...", "action": "wait"}}
+Respond with ONE JSON line only.
 
 Valid actions:
   move          -> move to target, do not place bomb

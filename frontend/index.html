@@ -121,6 +121,52 @@
         }
         .connected { color: #4caf50 !important; }
         .disconnected { color: #ff3333 !important; }
+        #restart-btn {
+            display: none;
+            margin-top: 12px;
+            padding: 12px 32px;
+            font-size: 18px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            letter-spacing: 2px;
+            color: #fff;
+            background: #ff6600;
+            border: 2px solid #cc5200;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #restart-btn:hover {
+            background: #e85d04;
+        }
+        #death-log {
+            display: none;
+            width: 720px;
+            margin-top: 8px;
+            padding: 12px;
+            background: #2a0a0a;
+            border: 1px solid #ff3333;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #ff9999;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        #death-log h3 {
+            color: #ff3333;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .death-entry {
+            margin-bottom: 6px;
+            padding: 4px 8px;
+            background: #1a0505;
+            border-radius: 2px;
+            font-family: 'Courier New', monospace;
+        }
+        .death-entry .action-line {
+            color: #cc8888;
+        }
     </style>
 </head>
 <body>
@@ -153,6 +199,8 @@
         </div>
     </div>
     <div id="connection-status" class="disconnected">Connecting...</div>
+    <div id="death-log"></div>
+    <button id="restart-btn">RESTART</button>
     <script src="/static/game.js"></script>
 </body>
 </html>

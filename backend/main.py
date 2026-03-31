@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -16,6 +17,8 @@ from .agents.llm_agent import LLMAgent
 # Load .env from project root
 load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -29,6 +32,7 @@ frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
 app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
 connected_clients: list[WebSocket] = []
+restart_event = asyncio.Event()
 
 
 def state_to_dict(state: GameState) -> dict:
@@ -69,6 +73,7 @@ def state_to_dict(state: GameState) -> dict:
         "win_reason": state.win_reason,
         "agent_thoughts": state.agent_thoughts,
         "agent_last_action": state.agent_last_action,
+        "death_log": state.death_log,
     }
 
 
@@ -98,7 +103,9 @@ async def websocket_endpoint(ws: WebSocket):
     connected_clients.append(ws)
     try:
         while True:
-            await ws.receive_text()  # keep alive, ignore input
+            msg = await ws.receive_text()
+            if msg == "restart":
+                restart_event.set()
     except WebSocketDisconnect:
         if ws in connected_clients:
             connected_clients.remove(ws)
@@ -106,7 +113,14 @@ async def websocket_endpoint(ws: WebSocket):
 
 @app.on_event("startup")
 async def startup():
-    asyncio.create_task(start_game())
+    asyncio.create_task(game_manager())
+
+
+async def game_manager():
+    while True:
+        await start_game()
+        restart_event.clear()
+        await restart_event.wait()
 
 
 async def start_game():
