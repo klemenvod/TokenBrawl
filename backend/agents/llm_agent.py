@@ -28,6 +28,7 @@ class LLMAgent:
         self.client = client
         self.last_prompt_tick = -1
         self.running = True
+        self.thinking = False
 
     async def run(self):
         while self.running:
@@ -48,6 +49,7 @@ class LLMAgent:
             prompt_tick = state.tick
             self.last_prompt_tick = state.tick
 
+            self.thinking = True
             try:
                 action = await asyncio.wait_for(
                     self._call_llm(prompt),
@@ -59,6 +61,8 @@ class LLMAgent:
             except Exception as e:
                 logger.error("[%s] LLM call failed: %s", self.player_id, e, exc_info=True)
                 action = {"action": "wait", "reasoning": f"error: {e}"}
+            finally:
+                self.thinking = False
 
             # Ignore stale responses (older than 15 ticks)
             current_tick = self.state_ref[0].tick
@@ -72,14 +76,16 @@ class LLMAgent:
         """
         Re-prompt if:
         - Action queue is empty (agent has nothing queued)
+        - Player is not currently moving
         - AND at least one of:
           a. 10+ ticks elapsed since last prompt
           b. First prompt (last_prompt_tick == -1)
         """
         if not self.action_queue.empty():
             return False
-        ticks_since = state.tick - self.last_prompt_tick
-        return ticks_since >= 10 or self.last_prompt_tick == -1
+        if state.agent_moving.get(self.player_id, False):
+            return False
+        return True
 
     async def _call_llm(self, prompt: str) -> dict:
         logger.info("[%s] Sending LLM request (model: %s)", self.player_id, "openai/gpt-5.4")

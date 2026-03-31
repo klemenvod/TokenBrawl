@@ -73,6 +73,7 @@ def state_to_dict(state: GameState) -> dict:
         "win_reason": state.win_reason,
         "agent_thoughts": state.agent_thoughts,
         "agent_last_action": state.agent_last_action,
+        "agent_thinking": state.agent_thinking,
         "death_log": state.death_log,
     }
 
@@ -152,7 +153,7 @@ async def start_game():
         asyncio.create_task(agents["p2"].run()),
     ]
 
-    await run_game_loop(state_ref, broadcast, action_queues)
+    await run_game_loop(state_ref, broadcast, action_queues, agents)
 
     for agent in agents.values():
         agent.stop()

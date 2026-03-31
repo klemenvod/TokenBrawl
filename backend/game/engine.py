@@ -224,7 +224,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
         movement_state[player_id] = None
 
 
-async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict):
+async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agents: dict = None):
     """
     Main loop. Runs until state.game_over = True.
     """
@@ -309,8 +309,15 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict):
         state = await tick(state)
         state_ref[0] = state
 
-        # 4. Broadcast
+        # 4. Copy agent thinking/moving state
+        for pid in ["p1", "p2"]:
+            state.agent_moving[pid] = movement_state[pid] is not None
+        if agents:
+            for pid in ["p1", "p2"]:
+                state.agent_thinking[pid] = agents[pid].thinking
+
+        # 5. Broadcast
         await broadcast_fn(state)
 
-        # 5. Sleep
+        # 6. Sleep
         await asyncio.sleep(0.1)

@@ -116,6 +116,23 @@ function render(state) {
                 ctx.fillStyle = "#777777";
                 ctx.fillRect(px + 2, py + 2, TILE / 2 - 2, TILE / 2 - 2);
                 ctx.fillRect(px + TILE / 2 + 1, py + TILE / 2 + 1, TILE / 2 - 3, TILE / 2 - 3);
+
+                // Coordinate labels on border walls
+                if (y === 0 || y === ROWS - 1 || x === 0 || x === COLS - 1) {
+                    let label = "";
+                    if ((y === 0 || y === ROWS - 1) && x > 0 && x < COLS - 1) {
+                        label = String(x);
+                    } else if ((x === 0 || x === COLS - 1) && y > 0 && y < ROWS - 1) {
+                        label = String(y);
+                    }
+                    if (label) {
+                        ctx.fillStyle = "rgba(255,255,255,0.5)";
+                        ctx.font = "bold 11px Courier New";
+                        ctx.textAlign = "center";
+                        ctx.textBaseline = "middle";
+                        ctx.fillText(label, px + TILE / 2, py + TILE / 2);
+                    }
+                }
             } else if (cell === BRICK) {
                 ctx.fillStyle = COLOR_BRICK;
                 ctx.fillRect(px, py, TILE, TILE);
@@ -219,6 +236,35 @@ function render(state) {
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText(pid === "p1" ? "1" : "2", px, py);
+
+        // Thinking bubble when waiting for LLM response
+        if (state.agent_thinking && state.agent_thinking[pid]) {
+            const bubbleX = px + 12;
+            const bubbleY = py - TILE / 2 - 10;
+
+            // Bubble background
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.beginPath();
+            ctx.roundRect(bubbleX - 16, bubbleY - 8, 32, 16, 4);
+            ctx.fill();
+
+            // Animated dots
+            const dotPhase = Math.floor(Date.now() / 300) % 4;
+            ctx.fillStyle = "#333";
+            ctx.font = "bold 12px Courier New";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            const dots = ".".repeat(dotPhase || 1);
+            ctx.fillText(dots, bubbleX, bubbleY);
+
+            // Small triangle pointing to player
+            ctx.fillStyle = "rgba(255,255,255,0.9)";
+            ctx.beginPath();
+            ctx.moveTo(bubbleX - 4, bubbleY + 8);
+            ctx.lineTo(bubbleX + 2, bubbleY + 8);
+            ctx.lineTo(px + 6, py - TILE / 3);
+            ctx.fill();
+        }
     }
 
     // 5. Game over overlay
@@ -361,6 +407,8 @@ let deathLogShown = false;
 
 function updateDeathLog(state) {
     const deathLogEl = document.getElementById("death-log");
+
+    console.log("death_log:", JSON.stringify(state.death_log));
 
     if (!state.death_log || Object.keys(state.death_log).length === 0) {
         if (!state.game_over) {
