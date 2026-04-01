@@ -28,6 +28,67 @@ let lastP1Score = 0;
 let lastP2Score = 0;
 let currentWS = null;
 
+// --- Smooth movement interpolation with position queue ---
+const MOVE_DURATION = 160; // ms per cell — tuned for 2-tick (200ms) backend steps
+const playerInterp = {
+    p1: { x: 1, y: 1, queue: [], segStart: 0, fromX: 1, fromY: 1, toX: 1, toY: 1, animating: false },
+    p2: { x: 13, y: 11, queue: [], segStart: 0, fromX: 13, fromY: 11, toX: 13, toY: 11, animating: false },
+};
+
+function updatePlayerInterp(pid, newX, newY) {
+    const interp = playerInterp[pid];
+    // Only enqueue if this is a genuinely new target
+    const lastQueued = interp.queue.length > 0 ? interp.queue[interp.queue.length - 1] : null;
+    const lastX = lastQueued ? lastQueued[0] : interp.toX;
+    const lastY = lastQueued ? lastQueued[1] : interp.toY;
+    if (newX !== lastX || newY !== lastY) {
+        interp.queue.push([newX, newY]);
+        if (!interp.animating) {
+            advanceQueue(pid);
+        }
+    }
+}
+
+function advanceQueue(pid) {
+    const interp = playerInterp[pid];
+    if (interp.queue.length === 0) {
+        interp.animating = false;
+        return;
+    }
+    const [nx, ny] = interp.queue.shift();
+    interp.fromX = interp.x;
+    interp.fromY = interp.y;
+    interp.toX = nx;
+    interp.toY = ny;
+    interp.segStart = performance.now();
+    interp.animating = true;
+}
+
+function getInterpPos(pid, now) {
+    const interp = playerInterp[pid];
+    if (!interp.animating) {
+        return { x: interp.x, y: interp.y };
+    }
+    const elapsed = now - interp.segStart;
+    let t = Math.min(1, elapsed / MOVE_DURATION);
+    // Smooth ease-in-out (sine) for fluid continuous motion
+    t = 0.5 - 0.5 * Math.cos(Math.PI * t);
+    const cx = interp.fromX + (interp.toX - interp.fromX) * t;
+    const cy = interp.fromY + (interp.toY - interp.fromY) * t;
+    // When segment finishes, snap and try next queued position
+    if (elapsed >= MOVE_DURATION) {
+        interp.x = interp.toX;
+        interp.y = interp.toY;
+        advanceQueue(pid);
+        // If there's a next segment, blend into it immediately
+        if (interp.animating) {
+            return getInterpPos(pid, now);
+        }
+        return { x: interp.x, y: interp.y };
+    }
+    return { x: cx, y: cy };
+}
+
 // --- Start Button ---
 const startBtn = document.getElementById("start-btn");
 startBtn.addEventListener("click", () => {
@@ -45,6 +106,9 @@ restartBtn.addEventListener("click", () => {
         restartBtn.style.display = "none";
         deathLogShown = false;
         document.getElementById("death-log").style.display = "none";
+        // Reset interpolation to spawn positions
+        playerInterp.p1 = { x: 1, y: 1, queue: [], segStart: 0, fromX: 1, fromY: 1, toX: 1, toY: 1, animating: false };
+        playerInterp.p2 = { x: 13, y: 11, queue: [], segStart: 0, fromX: 13, fromY: 11, toX: 13, toY: 11, animating: false };
     }
 });
 
@@ -64,7 +128,22 @@ function connectWS() {
         const state = JSON.parse(event.data);
         lastState = state;
         startBtn.style.display = "none";
-        render(state);
+
+        // Feed positions into interpolation system
+        for (const pid of ["p1", "p2"]) {
+            const p = state.players[pid];
+            if (p.alive) {
+                updatePlayerInterp(pid, p.pos[0], p.pos[1]);
+            } else {
+                // Snap dead players
+                const interp = playerInterp[pid];
+                interp.x = p.pos[0];
+                interp.y = p.pos[1];
+                interp.queue = [];
+                interp.animating = false;
+            }
+        }
+
         updateHUD(state);
         updateThoughts(state);
         updateDeathLog(state);
@@ -217,13 +296,35 @@ function render(state) {
     }
 
     // 4. Draw players
+    const now = performance.now();
     for (const pid of ["p1", "p2"]) {
         const player = state.players[pid];
         if (!player.alive) continue;
 
-        const px = player.pos[0] * TILE + TILE / 2;
-        const py = player.pos[1] * TILE + TILE / 2;
+        const interpPos = getInterpPos(pid, now);
+        const px = interpPos.x * TILE + TILE / 2;
+        const py = interpPos.y * TILE + TILE / 2;
         const color = pid === "p1" ? COLOR_P1 : COLOR_P2;
+
+        // Intent line to target tile
+        const target = state.agent_target?.[pid];
+        if (target && target.pos) {
+            const tx = target.pos[0] * TILE + TILE / 2;
+            const ty = target.pos[1] * TILE + TILE / 2;
+            ctx.beginPath();
+            ctx.moveTo(px, py);
+            ctx.lineTo(tx, ty);
+            ctx.strokeStyle = target.bomb ? "rgba(255,50,50,0.7)" : "rgba(255,255,255,0.45)";
+            ctx.lineWidth = target.bomb ? 2 : 1.5;
+            ctx.setLineDash([6, 4]);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            // Small marker on target tile
+            ctx.beginPath();
+            ctx.arc(tx, ty, 4, 0, Math.PI * 2);
+            ctx.fillStyle = target.bomb ? "rgba(255,50,50,0.8)" : "rgba(255,255,255,0.6)";
+            ctx.fill();
+        }
 
         // Shadow
         ctx.beginPath();

@@ -113,22 +113,44 @@ def _build_corridor_text(corridors: list, player_pos: list[int]) -> str:
 
 
 def _build_brick_targets(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
-    """List each reachable brick with adjacent floor tiles to bomb from."""
-    if not reachable_bricks:
-        return "  No bricks in range"
+    """List each reachable brick with adjacent floor tiles to bomb from, excluding bricks in active blast zones."""
+    # Compute all cells in any active bomb's blast zone
+    danger = set()
+    for b in state.bombs:
+        for c in compute_blast_cells(state.grid, b):
+            danger.add((c[0], c[1]))
+
+    # Filter out bricks whose "bomb from" positions are all in blast zones
+    safe_bricks = []
+    for brick in reachable_bricks:
+        bx, by = brick
+        if (bx, by) in danger:
+            continue
+        # Check if any adjacent bomb-from tile is safe
+        has_safe_spot = False
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = bx + dx, by + dy
+            if (nx, ny) in reachable_floor_set and (nx, ny) not in danger:
+                has_safe_spot = True
+                break
+        if has_safe_spot:
+            safe_bricks.append(brick)
+
+    if not safe_bricks:
+        return "  No safe bricks in range (some targets hidden due to active blast zones)"
 
     lines = []
     H = len(state.grid)
     W = len(state.grid[0])
 
-    for brick in reachable_bricks:
+    for brick in safe_bricks:
         bx, by = brick
         description = _describe_brick_impact(state.grid, bx, by, W, H, reachable_floor_set)
-        # Find adjacent reachable floor tiles to stand on when bombing
+        # Only show bomb-from positions that are outside blast zones
         bomb_from = []
         for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
             nx, ny = bx + dx, by + dy
-            if (nx, ny) in reachable_floor_set:
+            if (nx, ny) in reachable_floor_set and (nx, ny) not in danger:
                 bomb_from.append(f"({nx},{ny})")
         bomb_from_str = " ".join(bomb_from) if bomb_from else "none"
         lines.append(f"  brick ({bx},{by}) -> bomb from: {bomb_from_str} | {description}")
@@ -273,6 +295,28 @@ def score_situation(state: GameState, player_id: str) -> str:
         return f"Score is TIED. {remaining} bricks remain."
 
 
+def _build_own_bomb_warning(state: GameState, player_id: str) -> str:
+    """Build a prominent warning banner when the player has an active bomb."""
+    my_bombs = [b for b in state.bombs if b.owner == player_id]
+    if not my_bombs:
+        return ""
+
+    lines = []
+    for b in my_bombs:
+        blast = compute_blast_cells(state.grid, b)
+        lethal_cells = [(c[0], c[1]) for c in blast]
+        lethal_str = " ".join(f"({c[0]},{c[1]})" for c in lethal_cells)
+        explodes_at = state.tick + b.fuse_ticks
+        lines.append(f"""
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! YOUR BOMB AT ({b.pos[0]},{b.pos[1]}) IS TICKING — {b.fuse_ticks} ticks left (explodes tick {explodes_at}) !!
+!! FORBIDDEN CELLS (you WILL die here): {lethal_str}
+!! DO NOT move to ANY of these cells as your destination!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!""")
+
+    return "\n".join(lines)
+
+
 def serialize(state: GameState, player_id: str) -> str:
     """Produce the full LLM prompt from game state."""
     enemy_id = _other(player_id)
@@ -293,10 +337,11 @@ def serialize(state: GameState, player_id: str) -> str:
     time_str = _format_time(state.time_remaining_ticks)
 
     active_threats_text = _build_active_threats(state, player_id)
+    own_bomb_warning = _build_own_bomb_warning(state, player_id)
 
     return f"""=== BOMBER-{player_id[-1]} | Tick {state.tick} ===
 Score: YOU={me.score}  ENEMY={enemy.score}  |  Bricks remaining: {state.bricks_remaining}  |  Time: {time_str}
-
+{own_bomb_warning}
 MAP (15x13):
 {ascii_grid}
 Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy  *=your bomb  !=enemy bomb  X=active explosion  x=BLAST SHADOW (passable, but deadly when bomb detonates — pass through quickly, do NOT stop here)

@@ -194,11 +194,11 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
     if ms is None:
         return
 
-    # Move one step every 3 ticks
+    # Move one step every 2 ticks (5 cells/sec — closer to classic Bomberman pace)
     ms["move_cooldown"] = ms.get("move_cooldown", 0) - 1
     if ms["move_cooldown"] > 0:
         return
-    ms["move_cooldown"] = 3
+    ms["move_cooldown"] = 2
 
     remaining_path = ms["path"]
     if not remaining_path:
@@ -215,6 +215,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 ))
         # Clear movement
         movement_state[player_id] = None
+        state.agent_target[player_id] = None
         return
 
     # Move one step
@@ -234,6 +235,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                     blast_radius=player.blast_radius,
                 ))
         movement_state[player_id] = None
+        state.agent_target[player_id] = None
 
 
 async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agents: dict = None):
@@ -313,6 +315,9 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                     "path": path,
                     "place_bomb": place_bomb,
                 }
+                # Track target for frontend intent line
+                final_pos = path[-1] if path else [tx, ty]
+                state.agent_target[pid] = {"pos": final_pos, "bomb": place_bomb}
 
         # 2. Advance movement for players currently moving
         for pid in ["p1", "p2"]:
