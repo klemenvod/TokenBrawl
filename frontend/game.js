@@ -28,6 +28,15 @@ let lastP1Score = 0;
 let lastP2Score = 0;
 let currentWS = null;
 
+// --- Start Button ---
+const startBtn = document.getElementById("start-btn");
+startBtn.addEventListener("click", () => {
+    if (currentWS && currentWS.readyState === WebSocket.OPEN) {
+        currentWS.send("start");
+        startBtn.style.display = "none";
+    }
+});
+
 // --- Restart Button ---
 const restartBtn = document.getElementById("restart-btn");
 restartBtn.addEventListener("click", () => {
@@ -54,6 +63,7 @@ function connectWS() {
     ws.onmessage = (event) => {
         const state = JSON.parse(event.data);
         lastState = state;
+        startBtn.style.display = "none";
         render(state);
         updateHUD(state);
         updateThoughts(state);
@@ -160,7 +170,7 @@ function render(state) {
     for (const bomb of state.bombs) {
         const bx = bomb.pos[0] * TILE + TILE / 2;
         const by = bomb.pos[1] * TILE + TILE / 2;
-        const fuseRatio = bomb.fuse_ticks / 40;
+        const fuseRatio = bomb.fuse_ticks / 50;
 
         // Static bomb circle (no pulse animation)
         const radius = TILE / 3;

@@ -96,7 +96,7 @@ def _build_corridor_text(corridors: list, player_pos: list[int]) -> str:
 
 
 def _build_brick_targets(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
-    """List each reachable brick with a description of what bombing it opens."""
+    """List each reachable brick with adjacent floor tiles to bomb from."""
     if not reachable_bricks:
         return "  No bricks in range"
 
@@ -106,9 +106,15 @@ def _build_brick_targets(state: GameState, player_id: str, reachable_bricks: lis
 
     for brick in reachable_bricks:
         bx, by = brick
-        # Hypothetical: what opens if this brick is removed?
         description = _describe_brick_impact(state.grid, bx, by, W, H, reachable_floor_set)
-        lines.append(f"  ({bx},{by}) -> {description}")
+        # Find adjacent reachable floor tiles to stand on when bombing
+        bomb_from = []
+        for dx, dy in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            nx, ny = bx + dx, by + dy
+            if (nx, ny) in reachable_floor_set:
+                bomb_from.append(f"({nx},{ny})")
+        bomb_from_str = " ".join(bomb_from) if bomb_from else "none"
+        lines.append(f"  brick ({bx},{by}) -> bomb from: {bomb_from_str} | {description}")
 
     return "\n".join(lines)
 
@@ -260,7 +266,7 @@ Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy 
 REACHABLE PATHS:
 {corridor_text}
 
-BRICK TARGETS:
+BRICK TARGETS (you CANNOT move onto bricks — use "bomb from" positions as your target):
 {brick_targets_text}
 
 ACTIVE BOMBS:
@@ -272,6 +278,7 @@ DANGER:
 SCORE SITUATION:
 {score_text}
 
+IMPORTANT: Your target [x,y] must be a reachable floor tile (. on map). You cannot move onto bricks or walls.
 Choose ONE action. Valid actions:
   - "move"          — move to target: {{"reasoning": "...", "action": "move", "target": [x, y]}}
   - "move_and_bomb" — move to target then place bomb: {{"reasoning": "...", "action": "move_and_bomb", "target": [x, y]}}

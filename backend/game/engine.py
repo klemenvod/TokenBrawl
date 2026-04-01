@@ -198,7 +198,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=40,
+                    fuse_ticks=50,
                     blast_radius=player.blast_radius,
                 ))
         # Clear movement
@@ -218,7 +218,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=40,
+                    fuse_ticks=50,
                     blast_radius=player.blast_radius,
                 ))
         movement_state[player_id] = None
@@ -275,7 +275,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                         state.bombs.append(Bomb(
                             pos=list(state.players[pid].pos),
                             owner=pid,
-                            fuse_ticks=40,
+                            fuse_ticks=50,
                             blast_radius=state.players[pid].blast_radius,
                         ))
                     continue
@@ -293,6 +293,8 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                 # Compute path
                 path = find_path(state.grid, state.players[pid].pos, [tx, ty], state.bombs)
                 if not path:
+                    state.agent_thoughts[pid] = f"Invalid move: no path to ({tx},{ty}). Target must be a reachable floor tile."
+                    state.agent_last_action[pid] = f"{action_type} (FAILED)"
                     continue
 
                 movement_state[pid] = {

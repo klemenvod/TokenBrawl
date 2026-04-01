@@ -139,6 +139,23 @@
         #restart-btn:hover {
             background: #e85d04;
         }
+        #start-btn {
+            margin-top: 12px;
+            padding: 14px 40px;
+            font-size: 20px;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+            letter-spacing: 3px;
+            color: #fff;
+            background: #4caf50;
+            border: 2px solid #388e3c;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        #start-btn:hover {
+            background: #388e3c;
+        }
         #death-log {
             display: none;
             width: 720px;
@@ -199,6 +216,7 @@
         </div>
     </div>
     <div id="connection-status" class="disconnected">Connecting...</div>
+    <button id="start-btn">START</button>
     <div id="death-log"></div>
     <button id="restart-btn">RESTART</button>
     <script src="/static/game.js"></script>

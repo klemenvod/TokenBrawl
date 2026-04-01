@@ -79,11 +79,11 @@ def create_initial_state() -> GameState:
         if grid[y][x] == Cell.FLOOR and (x, y) not in spawn_zones
     ]
 
-    # Place 51 bricks ensuring connectivity
+    # Place 31 bricks ensuring connectivity
     random.shuffle(eligible)
     brick_cells = set()
     for (x, y) in eligible:
-        if len(brick_cells) >= 51:
+        if len(brick_cells) >= 31:
             break
         grid[y][x] = Cell.BRICK
         brick_cells.add((x, y))

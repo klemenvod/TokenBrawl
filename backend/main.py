@@ -33,6 +33,7 @@ app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
 connected_clients: list[WebSocket] = []
 restart_event = asyncio.Event()
+start_event = asyncio.Event()
 
 
 def state_to_dict(state: GameState) -> dict:
@@ -107,6 +108,8 @@ async def websocket_endpoint(ws: WebSocket):
             msg = await ws.receive_text()
             if msg == "restart":
                 restart_event.set()
+            elif msg == "start":
+                start_event.set()
     except WebSocketDisconnect:
         if ws in connected_clients:
             connected_clients.remove(ws)
@@ -118,7 +121,9 @@ async def startup():
 
 
 async def game_manager():
+    await start_event.wait()
     while True:
+        start_event.clear()
         await start_game()
         restart_event.clear()
         await restart_event.wait()
