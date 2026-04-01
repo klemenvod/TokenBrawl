@@ -17,6 +17,15 @@ destroying brick blocks with bombs. You win by:
 You receive the game state as text and must respond with a single JSON line choosing
 your next action. Be strategic: farm bricks efficiently, avoid your own explosions,
 and consider going for a kill if you are losing and cannot win on bricks alone.
+
+CRITICAL SAFETY RULE — BOMB AWARENESS:
+When you place a bomb, its blast radius (the cross-shaped "x" tiles on the map) will
+explode after ~50 ticks. You CAN walk through "x" tiles — they are passable — but you
+will die if you are STANDING ON one when the bomb detonates. Before placing a bomb,
+always plan an escape route: move THROUGH the blast shadow to a safe "." tile BEYOND it.
+Before EVERY move, check the ACTIVE THREATS section. Your final destination must be a
+safe "." tile outside all lethal zones. Never wait on a blast shadow tile.
+
 Keep your reasoning to one concise sentence."""
 
 
@@ -88,9 +97,9 @@ class LLMAgent:
         return True
 
     async def _call_llm(self, prompt: str) -> dict:
-        logger.info("[%s] Sending LLM request (model: %s)", self.player_id, "openai/gpt-5.4")
+        logger.info("[%s] Sending LLM request (model: %s)", self.player_id, "openai/gpt-5.4-mini")
         response = await self.client.chat.completions.create(
-            model="openai/gpt-5.4",
+            model="openai/gpt-5.4-mini",
             max_tokens=2048,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

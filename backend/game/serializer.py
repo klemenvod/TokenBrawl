@@ -14,6 +14,19 @@ def _format_time(ticks: int) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
+def _build_blast_shadow(state: GameState) -> set[tuple[int, int]]:
+    """Compute the set of all floor/brick cells in any active bomb's blast zone (excluding bomb center)."""
+    shadow = set()
+    for b in state.bombs:
+        blast = compute_blast_cells(state.grid, b)
+        bomb_pos = (b.pos[0], b.pos[1])
+        for c in blast:
+            pos = (c[0], c[1])
+            if pos != bomb_pos:
+                shadow.add(pos)
+    return shadow
+
+
 def _build_ascii_grid(state: GameState, player_id: str, reachable_set: set) -> str:
     """Build ASCII representation of the grid."""
     enemy_id = _other(player_id)
@@ -29,6 +42,8 @@ def _build_ascii_grid(state: GameState, player_id: str, reachable_set: set) -> s
     for exp in state.explosions:
         for c in exp.cells:
             explosion_set.add((c[0], c[1]))
+
+    blast_shadow = _build_blast_shadow(state)
 
     lines = []
     H = len(state.grid)
@@ -50,6 +65,8 @@ def _build_ascii_grid(state: GameState, player_id: str, reachable_set: set) -> s
                 row += "#"
             elif state.grid[y][x] == Cell.BRICK:
                 row += "b"
+            elif pos in blast_shadow:
+                row += "x"
             elif pos in reachable_set:
                 row += "."
             else:
@@ -218,6 +235,25 @@ def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list,
     return "\n".join(lines)
 
 
+def _build_active_threats(state: GameState, player_id: str) -> str:
+    """Explicit per-bomb threat listing with tick-based timing and lethal zones."""
+    if not state.bombs:
+        return "  No active threats. All cells are safe."
+
+    lines = []
+    for b in state.bombs:
+        owner_label = "Your bomb" if b.owner == player_id else "Enemy bomb"
+        explodes_at_tick = state.tick + b.fuse_ticks
+        safe_after_tick = explodes_at_tick + 5  # explosions last 5 ticks
+        blast = compute_blast_cells(state.grid, b)
+        lethal_str = " ".join(f"({c[0]},{c[1]})" for c in blast)
+        lines.append(f"  {owner_label} at ({b.pos[0]},{b.pos[1]}): Explodes in {b.fuse_ticks} ticks (at tick {explodes_at_tick}).")
+        lines.append(f"    Lethal Zones: {lethal_str}")
+        lines.append(f"    Status: LETHAL when bomb detonates (until tick {safe_after_tick}). You CAN walk through these to escape, but do NOT stop or wait on them.")
+
+    return "\n".join(lines)
+
+
 def score_situation(state: GameState, player_id: str) -> str:
     enemy_id = _other(player_id)
     me = state.players[player_id].score
@@ -256,12 +292,14 @@ def serialize(state: GameState, player_id: str) -> str:
     score_text = score_situation(state, player_id)
     time_str = _format_time(state.time_remaining_ticks)
 
+    active_threats_text = _build_active_threats(state, player_id)
+
     return f"""=== BOMBER-{player_id[-1]} | Tick {state.tick} ===
 Score: YOU={me.score}  ENEMY={enemy.score}  |  Bricks remaining: {state.bricks_remaining}  |  Time: {time_str}
 
 MAP (15x13):
 {ascii_grid}
-Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy  *=your bomb  !=enemy bomb  X=explosion
+Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy  *=your bomb  !=enemy bomb  X=active explosion  x=BLAST SHADOW (passable, but deadly when bomb detonates — pass through quickly, do NOT stop here)
 
 REACHABLE PATHS:
 {corridor_text}
@@ -272,13 +310,17 @@ BRICK TARGETS (you CANNOT move onto bricks — use "bomb from" positions as your
 ACTIVE BOMBS:
 {bombs_text}
 
+ACTIVE THREATS:
+{active_threats_text}
+
 DANGER:
 {danger_text}
 
 SCORE SITUATION:
 {score_text}
 
-IMPORTANT: Your target [x,y] must be a reachable floor tile (. on map). You cannot move onto bricks or walls.
+IMPORTANT: Your target [x,y] must be a reachable floor tile (. or x on map). You CANNOT move onto bricks or walls.
+Blast shadow (x) tiles are PASSABLE — you can and MUST walk through them to escape after bombing. But your final destination should be a safe "." tile OUTSIDE the blast zone. If you are currently on an x tile, MOVE IMMEDIATELY through the x tiles to reach a safe "." tile — do NOT wait.
 Choose ONE action. Valid actions:
   - "move"          — move to target: {{"reasoning": "...", "action": "move", "target": [x, y]}}
   - "move_and_bomb" — move to target then place bomb: {{"reasoning": "...", "action": "move_and_bomb", "target": [x, y]}}
@@ -286,14 +328,10 @@ Choose ONE action. Valid actions:
   - "wait"          — stay in place, do nothing: {{"reasoning": "...", "action": "wait"}}
 Respond with ONE JSON line only.
 
-Valid actions:
-  move          -> move to target, do not place bomb
-  move_and_bomb -> move to target, place bomb on arrival
-  bomb_here     -> place bomb at current position (no target needed)
-  wait          -> do nothing this turn
-
 Rules:
   - Target must be in reachable paths or brick targets list
-  - You will die if caught in any blast radius — plan your escape before bombing
+  - x (blast shadow) tiles are walkable but LETHAL when the bomb detonates — your target must be a "." tile beyond the blast zone
+  - If you are on an x tile, ESCAPE NOW — move through x tiles to reach a safe "." tile. NEVER wait on an x tile.
+  - Before placing a bomb, plan your escape route to a "." tile outside the cross-shaped blast
   - Killing the enemy wins instantly regardless of score
   - Destroying bricks scores +1 per brick"""

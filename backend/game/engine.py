@@ -152,6 +152,18 @@ async def tick(state: GameState) -> GameState:
             state.winner = "draw"
         state.win_reason = "bricks"
 
+    # Check majority win: a player has more than half the total bricks
+    majority = state.total_bricks // 2 + 1
+    if not state.game_over:
+        if p1.score >= majority:
+            state.game_over = True
+            state.winner = "p1"
+            state.win_reason = "majority"
+        elif p2.score >= majority:
+            state.game_over = True
+            state.winner = "p2"
+            state.win_reason = "majority"
+
     elif state.time_remaining_ticks <= 0:
         state.game_over = True
         if p1.score > p2.score:
@@ -198,7 +210,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=50,
+                    fuse_ticks=60,
                     blast_radius=player.blast_radius,
                 ))
         # Clear movement
@@ -218,7 +230,7 @@ def execute_move(state: GameState, player_id: str, path: list[list[int]], place_
                 state.bombs.append(Bomb(
                     pos=list(player.pos),
                     owner=player_id,
-                    fuse_ticks=50,
+                    fuse_ticks=60,
                     blast_radius=player.blast_radius,
                 ))
         movement_state[player_id] = None
@@ -275,7 +287,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                         state.bombs.append(Bomb(
                             pos=list(state.players[pid].pos),
                             owner=pid,
-                            fuse_ticks=50,
+                            fuse_ticks=60,
                             blast_radius=state.players[pid].blast_radius,
                         ))
                     continue

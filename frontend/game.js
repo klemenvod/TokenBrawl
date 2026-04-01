@@ -170,7 +170,7 @@ function render(state) {
     for (const bomb of state.bombs) {
         const bx = bomb.pos[0] * TILE + TILE / 2;
         const by = bomb.pos[1] * TILE + TILE / 2;
-        const fuseRatio = bomb.fuse_ticks / 50;
+        const fuseRatio = bomb.fuse_ticks / 60;
 
         // Static bomb circle (no pulse animation)
         const radius = TILE / 3;

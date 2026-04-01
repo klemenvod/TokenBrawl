@@ -40,6 +40,7 @@ class GameState:
     bombs: list[Bomb] = field(default_factory=list)
     explosions: list[Explosion] = field(default_factory=list)
     bricks_remaining: int = 0
+    total_bricks: int = 0
     tick: int = 0
     time_remaining_ticks: int = 1800   # 3 min at 10 ticks/s
     game_over: bool = False
@@ -79,11 +80,11 @@ def create_initial_state() -> GameState:
         if grid[y][x] == Cell.FLOOR and (x, y) not in spawn_zones
     ]
 
-    # Place 31 bricks ensuring connectivity
+    # Place 21 bricks ensuring connectivity
     random.shuffle(eligible)
     brick_cells = set()
     for (x, y) in eligible:
-        if len(brick_cells) >= 31:
+        if len(brick_cells) >= 21:
             break
         grid[y][x] = Cell.BRICK
         brick_cells.add((x, y))
@@ -101,6 +102,7 @@ def create_initial_state() -> GameState:
         grid=grid,
         players=players,
         bricks_remaining=len(brick_cells),
+        total_bricks=len(brick_cells),
     )
 
 
