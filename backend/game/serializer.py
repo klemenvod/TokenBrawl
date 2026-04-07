@@ -77,14 +77,21 @@ def _build_ascii_grid(state: GameState, player_id: str, reachable_set: set) -> s
 
 
 def _build_corridor_text(corridors: list, player_pos: list[int]) -> str:
-    """Format corridors as human-readable text."""
+    """Format corridors as human-readable text. Shows at most 10 closest corridors."""
     if not corridors:
         return "  No paths available"
 
-    lines = []
     px, py = player_pos
 
-    for corr in corridors:
+    # Sort by distance from player (closest corridor first)
+    def corridor_dist(corr):
+        cells = corr["cells"]
+        return min(abs(c[0] - px) + abs(c[1] - py) for c in cells)
+
+    sorted_corrs = sorted(corridors, key=corridor_dist)[:10]
+
+    lines = []
+    for corr in sorted_corrs:
         cells = corr["cells"]
         cells_str = " ".join(f"({c[0]},{c[1]})" for c in cells)
 
@@ -180,24 +187,63 @@ def _describe_brick_impact(grid, bx, by, W, H, reachable_set) -> str:
     return "isolated brick"
 
 
-def _build_bombs_text(state: GameState, player_id: str) -> str:
-    """List all active bombs."""
+def _build_bombs_merged(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
+    """Merged bomb section: timing, blast zone, position safety, and escape cells."""
     if not state.bombs:
         return "  No active bombs"
 
+    me = state.players[player_id]
+    my_pos = (me.pos[0], me.pos[1])
+
+    all_danger = set()
+    for b in state.bombs:
+        for c in compute_blast_cells(state.grid, b):
+            all_danger.add((c[0], c[1]))
+
     lines = []
     for b in state.bombs:
+        blast = compute_blast_cells(state.grid, b)
+        blast_set = set((c[0], c[1]) for c in blast)
         owner_label = "Your bomb" if b.owner == player_id else "Enemy bomb"
         time_left = b.fuse_ticks / 10.0
-        blast = compute_blast_cells(state.grid, b)
-        blast_str = "".join(f"({c[0]},{c[1]})" for c in blast)
-        lines.append(f"  {owner_label} at ({b.pos[0]},{b.pos[1]}) explodes in {time_left:.1f}s")
-        lines.append(f"    Blast zone: {blast_str}")
+        explodes_at_tick = state.tick + b.fuse_ticks
+        safe_after_tick = explodes_at_tick + 5
+        lethal_str = " ".join(f"({c[0]},{c[1]})" for c in blast)
+        lines.append(f"  {owner_label} at ({b.pos[0]},{b.pos[1]}) explodes in {time_left:.1f}s (tick {explodes_at_tick}, lethal until tick {safe_after_tick})")
+        lines.append(f"    Lethal zones: {lethal_str}")
+        if my_pos in blast_set:
+            lines.append(f"    ⚠ Your position ({my_pos[0]},{my_pos[1]}) is IN DANGER — MOVE NOW!")
+        else:
+            lines.append(f"    Your position ({my_pos[0]},{my_pos[1]}) is SAFE")
+        for brick in reachable_bricks:
+            bx, by = brick
+            if (bx, by) in blast_set:
+                lines.append(f"    Target ({bx},{by}) is in blast zone — avoid")
+
+    safe_cells = [
+        f"({my_pos[0]+dx},{my_pos[1]+dy})"
+        for dx, dy in [(0,1),(0,-1),(1,0),(-1,0)]
+        if (my_pos[0]+dx, my_pos[1]+dy) in reachable_floor_set
+        and (my_pos[0]+dx, my_pos[1]+dy) not in all_danger
+    ]
+    if my_pos in all_danger:
+        if safe_cells:
+            lines.append(f"  SAFE ESCAPE CELLS (move here!): {' '.join(safe_cells)}")
+        else:
+            lines.append(f"  WARNING: No safe adjacent cells! Move further away!")
+    else:
+        danger_adjacent = [
+            f"({my_pos[0]+dx},{my_pos[1]+dy})"
+            for dx, dy in [(0,1),(0,-1),(1,0),(-1,0)]
+            if (my_pos[0]+dx, my_pos[1]+dy) in all_danger
+        ]
+        if danger_adjacent:
+            lines.append(f"  AVOID THESE CELLS (in blast zone): {' '.join(danger_adjacent)}")
 
     return "\n".join(lines)
 
 
-def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
+def _build_danger_text_UNUSED(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
     """Pre-compute blast danger for player position and targets, including safe escape cells."""
     if not state.bombs:
         return "  No threats"
@@ -257,7 +303,7 @@ def _build_danger_text(state: GameState, player_id: str, reachable_bricks: list,
     return "\n".join(lines)
 
 
-def _build_active_threats(state: GameState, player_id: str) -> str:
+def _build_active_threats_UNUSED(state: GameState, player_id: str) -> str:
     """Explicit per-bomb threat listing with tick-based timing and lethal zones."""
     if not state.bombs:
         return "  No active threats. All cells are safe."
@@ -331,12 +377,10 @@ def serialize(state: GameState, player_id: str) -> str:
     ascii_grid = _build_ascii_grid(state, player_id, reachable_floor_set)
     corridor_text = _build_corridor_text(reachable["corridors"], me.pos)
     brick_targets_text = _build_brick_targets(state, player_id, reachable["bricks"], reachable_floor_set)
-    bombs_text = _build_bombs_text(state, player_id)
-    danger_text = _build_danger_text(state, player_id, reachable["bricks"], reachable_floor_set)
+    bombs_text = _build_bombs_merged(state, player_id, reachable["bricks"], reachable_floor_set)
     score_text = score_situation(state, player_id)
     time_str = _format_time(state.time_remaining_ticks)
 
-    active_threats_text = _build_active_threats(state, player_id)
     own_bomb_warning = _build_own_bomb_warning(state, player_id)
 
     return f"""=== BOMBER-{player_id[-1]} | Tick {state.tick} ===
@@ -352,14 +396,8 @@ REACHABLE PATHS:
 BRICK TARGETS (you CANNOT move onto bricks — use "bomb from" positions as your target):
 {brick_targets_text}
 
-ACTIVE BOMBS:
+BOMBS:
 {bombs_text}
-
-ACTIVE THREATS:
-{active_threats_text}
-
-DANGER:
-{danger_text}
 
 SCORE SITUATION:
 {score_text}
