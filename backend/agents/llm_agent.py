@@ -30,11 +30,12 @@ Keep your reasoning to one concise sentence."""
 
 
 class LLMAgent:
-    def __init__(self, player_id: str, state_ref: list, action_queue: asyncio.Queue, client):
+    def __init__(self, player_id: str, state_ref: list, action_queue: asyncio.Queue, client, model: str = "openai/gpt-5.4-mini"):
         self.player_id = player_id
         self.state_ref = state_ref        # mutable list holding current GameState
         self.action_queue = action_queue
         self.client = client
+        self.model = model
         self.last_prompt_tick = -1
         self.running = True
         self.thinking = False
@@ -97,9 +98,9 @@ class LLMAgent:
         return True
 
     async def _call_llm(self, prompt: str) -> dict:
-        logger.info("[%s] Sending LLM request (model: %s)", self.player_id, "openai/gpt-5.4-mini")
+        logger.info("[%s] Sending LLM request (model: %s)", self.player_id, self.model)
         response = await self.client.chat.completions.create(
-            model="openai/gpt-5.4-mini",
+            model=self.model,
             max_tokens=2048,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},

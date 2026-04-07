@@ -79,6 +79,7 @@ def state_to_dict(state: GameState) -> dict:
         "death_log": state.death_log,
         "agent_prompt_input": state.agent_prompt_input,
         "agent_prompt_output": state.agent_prompt_output,
+        "agent_models": state.agent_models,
     }
 
 
@@ -151,10 +152,14 @@ async def start_game():
         "p2": asyncio.Queue(),
     }
 
+    p1_model = "openai/gpt-5.4-mini"
+    p2_model = "openai/gpt-5.4-mini"
+
     agents = {
-        "p1": LLMAgent("p1", state_ref, action_queues["p1"], client),
-        "p2": LLMAgent("p2", state_ref, action_queues["p2"], client),
+        "p1": LLMAgent("p1", state_ref, action_queues["p1"], client, model=p1_model),
+        "p2": LLMAgent("p2", state_ref, action_queues["p2"], client, model=p2_model),
     }
+    state.agent_models = {"p1": p1_model, "p2": p2_model}
 
     tasks = [
         asyncio.create_task(agents["p1"].run()),

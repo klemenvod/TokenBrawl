@@ -20,6 +20,80 @@
             padding: 20px;
             min-height: 100vh;
         }
+        #layout {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        #center-column {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .side-output-panel {
+            width: 220px;
+            background: #0a1628;
+            border: 1px solid #333;
+            border-radius: 4px;
+            padding: 10px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-top: 134px;
+        }
+        .side-output-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+        }
+        #p1-side-title { color: #7c3aed; }
+        #p2-side-title { color: #e85d04; }
+        .side-output-text {
+            font-size: 10px;
+            color: #f0c060;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overflow-y: auto;
+            background: #1a1400;
+            border: 1px solid #2e2800;
+            border-radius: 2px;
+            padding: 6px 8px;
+            max-height: 680px;
+            min-height: 80px;
+        }
+        .output-action-line {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .output-action-badge {
+            font-size: 14px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            padding: 3.5px 11.5px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            white-space: nowrap;
+        }
+        .action-move        { background: #1a3a1a; color: #66dd66; border: 1px solid #2a6a2a; }
+        .action-move_and_bomb { background: #3a1a00; color: #ff8833; border: 1px solid #883300; }
+        .action-bomb_here   { background: #3a0000; color: #ff4444; border: 1px solid #880000; }
+        .action-wait        { background: #1a1a2e; color: #8888cc; border: 1px solid #333366; }
+        .output-action-target {
+            font-size: 11px;
+            color: #aaa;
+        }
+        .output-reasoning {
+            font-size: 12px;
+            color: #f0c060;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
         h1 {
             color: #ff6600;
             margin-bottom: 10px;
@@ -31,6 +105,10 @@
             border-radius: 4px;
             display: block;
         }
+        #game-container {
+            position: relative;
+            width: 720px;
+        }
         #hud {
             display: flex;
             justify-content: space-between;
@@ -39,22 +117,26 @@
             padding: 12px 16px;
             background: #16213e;
             border: 1px solid #333;
-            border-radius: 0 0 4px 4px;
+            border-radius: 4px 4px 0 0;
             font-size: 16px;
         }
         .player-score {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 8px;
+            gap: 2px;
         }
         .player-score .label {
             font-weight: bold;
-            font-size: 14px;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
         }
         .player-score .score {
-            font-size: 22px;
+            font-size: 28px;
             font-weight: bold;
             transition: color 0.3s;
+            line-height: 1;
         }
         #p1-label { color: #7c3aed; }
         #p2-label { color: #e85d04; }
@@ -65,12 +147,12 @@
             text-align: center;
         }
         #bricks-display {
-            font-size: 13px;
-            color: #8b4513;
-        }
-        #time-display {
             font-size: 20px;
             font-weight: bold;
+        }
+        #time-display {
+            font-size: 13px;
+            color: #8b4513;
         }
         .time-critical {
             color: #ff3333 !important;
@@ -123,9 +205,12 @@
         .disconnected { color: #ff3333 !important; }
         #restart-btn {
             display: none;
-            margin-top: 12px;
-            padding: 12px 32px;
-            font-size: 18px;
+            position: absolute;
+            top: 72%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            padding: 14px 36px;
+            font-size: 20px;
             font-family: 'Courier New', monospace;
             font-weight: bold;
             letter-spacing: 2px;
@@ -135,14 +220,18 @@
             border-radius: 4px;
             cursor: pointer;
             transition: background 0.2s;
+            z-index: 10;
         }
         #restart-btn:hover {
             background: #e85d04;
         }
         #start-btn {
-            margin-top: 12px;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
             padding: 14px 40px;
-            font-size: 20px;
+            font-size: 24px;
             font-family: 'Courier New', monospace;
             font-weight: bold;
             letter-spacing: 3px;
@@ -152,6 +241,7 @@
             border-radius: 4px;
             cursor: pointer;
             transition: background 0.2s;
+            z-index: 10;
         }
         #start-btn:hover {
             background: #388e3c;
@@ -184,7 +274,12 @@
         .death-entry .action-line {
             color: #cc8888;
         }
-        #prompt-io-container {
+        .prompt-placeholder {
+            font-size: 10px;
+            color: #444;
+            font-style: italic;
+        }
+        #prompt-input-container {
             display: flex;
             width: 720px;
             gap: 0;
@@ -227,109 +322,77 @@
             font-family: 'Courier New', monospace;
         }
         .prompt-toggle:hover { color: #ccc; border-color: #888; }
-        .prompt-section-label {
-            font-size: 10px;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 3px;
-            margin-top: 6px;
-        }
-        .prompt-section-label:first-of-type { margin-top: 0; }
         .prompt-text {
             font-size: 10px;
             color: #7db87d;
             line-height: 1.4;
             white-space: pre-wrap;
             word-break: break-word;
-            max-height: 120px;
+            max-height: 200px;
             overflow-y: auto;
             background: #060e1a;
             border: 1px solid #1e2e1e;
             border-radius: 2px;
             padding: 4px 6px;
         }
-        .prompt-output-text {
-            font-size: 10px;
-            color: #f0c060;
-            line-height: 1.4;
-            white-space: pre-wrap;
-            word-break: break-word;
-            max-height: 80px;
-            overflow-y: auto;
-            background: #1a1400;
-            border: 1px solid #2e2800;
-            border-radius: 2px;
-            padding: 4px 6px;
-        }
-        .prompt-placeholder {
-            font-size: 10px;
-            color: #444;
-            font-style: italic;
-        }
         .prompt-body { display: block; }
         .prompt-body.collapsed { display: none; }
     </style>
 </head>
 <body>
-    <h1>LLM BOMBERMAN</h1>
-    <canvas id="game-canvas" width="720" height="624"></canvas>
+    <div id="layout">
+    <div class="side-output-panel">
+        <div class="side-output-title" id="p1-side-title">BOMBER-1 OUTPUT</div>
+        <div id="p1-prompt-output" class="side-output-text"><span class="prompt-placeholder">No response yet...</span></div>
+    </div>
+    <div id="center-column">
     <div id="hud">
         <div class="player-score">
-            <span id="p1-label" class="label">BOMBER-1</span>
+            <span id="p1-label" class="label">Bomber-1 score:</span>
             <span id="p1-score" class="score">0</span>
         </div>
         <div id="center-info">
-            <div id="bricks-display">Bricks: 51</div>
-            <div id="time-display">3:00</div>
+            <div id="bricks-display">Bricks left: 21</div>
+            <div id="time-display">Time left: 3:00</div>
         </div>
         <div class="player-score">
+            <span id="p2-label" class="label">Bomber-2 score:</span>
             <span id="p2-score" class="score">0</span>
-            <span id="p2-label" class="label">BOMBER-2</span>
         </div>
     </div>
-    <div id="thoughts-container">
-        <div class="thought-panel">
-            <h3 id="p1-thought-title">BOMBER-1</h3>
-            <div id="p1-thought" class="thought-text">Waiting for game...</div>
-            <div id="p1-action" class="thought-action"></div>
-        </div>
-        <div class="thought-panel">
-            <h3 id="p2-thought-title">BOMBER-2</h3>
-            <div id="p2-thought" class="thought-text">Waiting for game...</div>
-            <div id="p2-action" class="thought-action"></div>
-        </div>
+    <div id="game-container">
+        <canvas id="game-canvas" width="720" height="624"></canvas>
+        <button id="start-btn">START</button>
+        <button id="restart-btn">RESTART</button>
     </div>
     <div id="connection-status" class="disconnected">Connecting...</div>
-    <button id="start-btn">START</button>
     <div id="death-log"></div>
-    <button id="restart-btn">RESTART</button>
-    <div id="prompt-io-container">
+    <div id="prompt-input-container">
         <div class="prompt-panel">
             <div class="prompt-panel-header">
-                <h3 id="p1-prompt-title">BOMBER-1 LLM I/O</h3>
+                <h3 id="p1-prompt-title">BOMBER-1 INPUT</h3>
                 <button class="prompt-toggle" data-target="p1-prompt-body">collapse</button>
             </div>
             <div id="p1-prompt-body" class="prompt-body">
-                <div class="prompt-section-label">Prompt Input</div>
                 <div id="p1-prompt-input" class="prompt-text"><span class="prompt-placeholder">No prompt yet...</span></div>
-                <div class="prompt-section-label">LLM Output</div>
-                <div id="p1-prompt-output" class="prompt-output-text"><span class="prompt-placeholder">No response yet...</span></div>
             </div>
         </div>
         <div class="prompt-panel">
             <div class="prompt-panel-header">
-                <h3 id="p2-prompt-title">BOMBER-2 LLM I/O</h3>
+                <h3 id="p2-prompt-title">BOMBER-2 INPUT</h3>
                 <button class="prompt-toggle" data-target="p2-prompt-body">collapse</button>
             </div>
             <div id="p2-prompt-body" class="prompt-body">
-                <div class="prompt-section-label">Prompt Input</div>
                 <div id="p2-prompt-input" class="prompt-text"><span class="prompt-placeholder">No prompt yet...</span></div>
-                <div class="prompt-section-label">LLM Output</div>
-                <div id="p2-prompt-output" class="prompt-output-text"><span class="prompt-placeholder">No response yet...</span></div>
             </div>
         </div>
     </div>
+    </div><!-- /center-column -->
+    <div class="side-output-panel">
+        <div class="side-output-title" id="p2-side-title">BOMBER-2 OUTPUT</div>
+        <div id="p2-prompt-output" class="side-output-text"><span class="prompt-placeholder">No response yet...</span></div>
+    </div>
+    </div><!-- /layout -->
     <script src="/static/game.js"></script>
 </body>
 </html>

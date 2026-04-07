@@ -55,6 +55,7 @@ class GameState:
     death_log: dict[str, list] = field(default_factory=dict)
     agent_prompt_input: dict[str, str] = field(default_factory=dict)
     agent_prompt_output: dict[str, str] = field(default_factory=dict)
+    agent_models: dict[str, str] = field(default_factory=dict)
 
 
 def create_initial_state() -> GameState:

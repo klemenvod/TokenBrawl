@@ -28,6 +28,28 @@ let lastP1Score = 0;
 let lastP2Score = 0;
 let currentWS = null;
 
+function shortModel(model) {
+    return model && model.includes("/") ? model.split("/").slice(1).join("/") : (model || "?");
+}
+
+function updatePlayerLabels(state) {
+    const m = state.agent_models || {};
+    const n1 = shortModel(m.p1);
+    const n2 = shortModel(m.p2);
+    document.getElementById("p1-label").textContent = n1 + " score:";
+    document.getElementById("p2-label").textContent = n2 + " score:";
+    document.getElementById("p1-side-title").textContent = n1 + " OUTPUT";
+    document.getElementById("p2-side-title").textContent = n2 + " OUTPUT";
+    const p1pt = document.getElementById("p1-prompt-title");
+    const p2pt = document.getElementById("p2-prompt-title");
+    if (p1pt) p1pt.textContent = n1 + " INPUT";
+    if (p2pt) p2pt.textContent = n2 + " INPUT";
+    const p1tt = document.getElementById("p1-thought-title");
+    const p2tt = document.getElementById("p2-thought-title");
+    if (p1tt) p1tt.textContent = n1;
+    if (p2tt) p2tt.textContent = n2;
+}
+
 // --- Smooth movement interpolation with position queue ---
 const MOVE_DURATION = 160; // ms per cell — tuned for 2-tick (200ms) backend steps
 const playerInterp = {
@@ -145,7 +167,7 @@ function connectWS() {
         }
 
         updateHUD(state);
-        updateThoughts(state);
+        updatePlayerLabels(state);
         updateDeathLog(state);
         updatePromptIO(state);
 
@@ -247,35 +269,97 @@ function render(state) {
 
     // 2. Draw bombs
     const now = Date.now();
+
+    // Group bombs by tile position to detect overlaps
+    const bombsByPos = new Map();
     for (const bomb of state.bombs) {
+        const key = `${bomb.pos[0]},${bomb.pos[1]}`;
+        if (!bombsByPos.has(key)) bombsByPos.set(key, []);
+        bombsByPos.get(key).push(bomb);
+    }
+
+    for (const bombs of bombsByPos.values()) {
+        const bomb = bombs[0];
         const bx = bomb.pos[0] * TILE + TILE / 2;
         const by = bomb.pos[1] * TILE + TILE / 2;
-        const fuseRatio = bomb.fuse_ticks / 60;
-
-        // Static bomb circle (no pulse animation)
         const radius = TILE / 3;
 
-        ctx.beginPath();
-        ctx.arc(bx, by, radius, 0, Math.PI * 2);
-        ctx.fillStyle = "#333333";
-        ctx.fill();
-        ctx.strokeStyle = bomb.owner === "p1" ? COLOR_P1 : COLOR_P2;
-        ctx.lineWidth = 2;
-        ctx.stroke();
+        if (bombs.length === 1) {
+            // Normal single bomb
+            const fuseRatio = bomb.fuse_ticks / 60;
+            ctx.beginPath();
+            ctx.arc(bx, by, radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#333333";
+            ctx.fill();
+            ctx.strokeStyle = bomb.owner === "p1" ? COLOR_P1 : COLOR_P2;
+            ctx.lineWidth = 2;
+            ctx.stroke();
 
-        // Countdown timer text
-        const secondsLeft = Math.ceil(bomb.fuse_ticks / 10);
-        const timerColor = fuseRatio < 0.3 ? "#ff3333" : "#ffffff";
-        ctx.font = "bold 18px Courier New";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        // Dark outline for readability
-        ctx.strokeStyle = "#000000";
-        ctx.lineWidth = 3;
-        ctx.strokeText(secondsLeft, bx, by);
-        // Fill text on top
-        ctx.fillStyle = timerColor;
-        ctx.fillText(secondsLeft, bx, by);
+            const secondsLeft = Math.ceil(bomb.fuse_ticks / 10);
+            const timerColor = fuseRatio < 0.3 ? "#ff3333" : "#ffffff";
+            ctx.font = "bold 18px Courier New";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 3;
+            ctx.strokeText(secondsLeft, bx, by);
+            ctx.fillStyle = timerColor;
+            ctx.fillText(secondsLeft, bx, by);
+        } else {
+            // Two bombs overlapping — split ring visual
+            const b1 = bombs.find(b => b.owner === "p1") || bombs[0];
+            const b2 = bombs.find(b => b.owner === "p2") || bombs[1];
+            const minFuse = Math.min(b1.fuse_ticks, b2.fuse_ticks);
+            const fuseRatio = minFuse / 60;
+
+            // Dark fill
+            ctx.beginPath();
+            ctx.arc(bx, by, radius, 0, Math.PI * 2);
+            ctx.fillStyle = "#222222";
+            ctx.fill();
+
+            // Left half ring — p1 color
+            ctx.beginPath();
+            ctx.arc(bx, by, radius, Math.PI / 2, 3 * Math.PI / 2);
+            ctx.strokeStyle = COLOR_P1;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Right half ring — p2 color
+            ctx.beginPath();
+            ctx.arc(bx, by, radius, -Math.PI / 2, Math.PI / 2);
+            ctx.strokeStyle = COLOR_P2;
+            ctx.lineWidth = 3;
+            ctx.stroke();
+
+            // Pulsing outer ring to signal danger
+            const pulse = 1 + 0.1 * Math.sin(Date.now() / 100);
+            ctx.beginPath();
+            ctx.arc(bx, by, (radius + 5) * pulse, 0, Math.PI * 2);
+            ctx.strokeStyle = fuseRatio < 0.3 ? "#ff3333" : "rgba(255,255,255,0.4)";
+            ctx.lineWidth = 1.5;
+            ctx.globalAlpha = 0.7;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+
+            // Two small timer badges — p1 top-left, p2 top-right
+            const s1 = Math.ceil(b1.fuse_ticks / 10);
+            const s2 = Math.ceil(b2.fuse_ticks / 10);
+            const badgeOffsets = [
+                { dx: -10, color: COLOR_P1, sec: s1, fuse: b1.fuse_ticks / 60 },
+                { dx: +10, color: COLOR_P2, sec: s2, fuse: b2.fuse_ticks / 60 },
+            ];
+            for (const b of badgeOffsets) {
+                ctx.font = "bold 10px Courier New";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.strokeStyle = "#000000";
+                ctx.lineWidth = 2.5;
+                ctx.strokeText(b.sec, bx + b.dx, by);
+                ctx.fillStyle = b.fuse < 0.3 ? "#ff3333" : b.color;
+                ctx.fillText(b.sec, bx + b.dx, by);
+            }
+        }
     }
 
     // 3. Draw explosions
@@ -349,6 +433,62 @@ function render(state) {
         ctx.textBaseline = "middle";
         ctx.fillText(pid === "p1" ? "1" : "2", px, py);
 
+        // Bomb-underfoot cue — player is standing on a bomb
+        const underBomb = bombMap.get(`${player.pos[0]},${player.pos[1]}`);
+        if (underBomb) {
+            const fuseRatio = underBomb.fuse_ticks / 60;
+            const ringColor = fuseRatio < 0.3 ? "#ff3333" : (underBomb.owner === "p1" ? COLOR_P1 : COLOR_P2);
+            // Pulsing ring: radius oscillates subtly
+            const pulse = 1 + 0.12 * Math.sin(Date.now() / 120);
+            const ringR = (TILE / 3 + 4) * pulse;
+            ctx.beginPath();
+            ctx.arc(px, py, ringR, 0, Math.PI * 2);
+            ctx.strokeStyle = ringColor;
+            ctx.lineWidth = 2.5;
+            ctx.globalAlpha = 0.75;
+            ctx.stroke();
+            ctx.globalAlpha = 1;
+            // Countdown badge at bottom of player circle
+            const badgeX = px;
+            const badgeY = py + TILE / 3 + 9;
+            const secondsLeft = Math.ceil(underBomb.fuse_ticks / 10);
+            ctx.fillStyle = fuseRatio < 0.3 ? "#ff3333" : "#222222";
+            ctx.beginPath();
+            ctx.roundRect(badgeX - 9, badgeY - 8, 18, 16, 3);
+            ctx.fill();
+            ctx.font = "bold 11px Courier New";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.strokeStyle = "#000000";
+            ctx.lineWidth = 2;
+            ctx.strokeText(secondsLeft, badgeX, badgeY);
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(secondsLeft, badgeX, badgeY);
+        }
+
+        // Wait animation — floating Zzz when action is "wait"
+        const lastAction = state.agent_last_action?.[pid];
+        if (lastAction === "wait" && !(state.agent_thinking && state.agent_thinking[pid])) {
+            const now = Date.now();
+            const zDefs = [
+                { phase: 0,    size: 10, dx: 12 },
+                { phase: 600,  size: 13, dx: 20 },
+                { phase: 1200, size: 16, dx: 10 },
+            ];
+            for (const z of zDefs) {
+                const t = ((now + z.phase) % 1800) / 1800; // 0..1 cycle
+                const floatY = py - TILE / 2 - 6 - t * 22;
+                const alpha = t < 0.7 ? t / 0.7 : 1 - (t - 0.7) / 0.3;
+                ctx.globalAlpha = alpha * 0.9;
+                ctx.fillStyle = "#8888cc";
+                ctx.font = `bold ${z.size}px Courier New`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText("z", px + z.dx - 12, floatY);
+            }
+            ctx.globalAlpha = 1;
+        }
+
         // Thinking bubble when waiting for LLM response
         if (state.agent_thinking && state.agent_thinking[pid]) {
             const bubbleX = px + 12;
@@ -402,10 +542,10 @@ function drawGameOver(state) {
         winnerText = "DRAW!";
         ctx.fillStyle = "#ffcc00";
     } else if (state.winner === "p1") {
-        winnerText = "BOMBER-1 WINS!";
+        winnerText = shortModel((state.agent_models || {}).p1).toUpperCase() + " WINS!";
         ctx.fillStyle = COLOR_P1;
     } else {
-        winnerText = "BOMBER-2 WINS!";
+        winnerText = shortModel((state.agent_models || {}).p2).toUpperCase() + " WINS!";
         ctx.fillStyle = COLOR_P2;
     }
 
@@ -459,13 +599,13 @@ function updateHUD(state) {
 
     p1ScoreEl.textContent = p1Score;
     p2ScoreEl.textContent = p2Score;
-    bricksEl.textContent = `Bricks: ${state.bricks_remaining}`;
+    bricksEl.textContent = `Bricks left: ${state.bricks_remaining}`;
 
     const totalSec = Math.max(0, Math.floor(state.time_remaining_ticks / 10));
     const min = Math.floor(totalSec / 60);
     const sec = totalSec % 60;
     const timeStr = `${min}:${sec.toString().padStart(2, "0")}`;
-    timeEl.textContent = timeStr;
+    timeEl.textContent = `Time left: ${timeStr}`;
 
     if (totalSec < 30) {
         timeEl.classList.add("time-critical");
@@ -536,7 +676,7 @@ function updateDeathLog(state) {
     let html = "<h3>DEATH LOG</h3>";
 
     for (const [pid, log] of Object.entries(state.death_log)) {
-        const label = pid === "p1" ? "BOMBER-1" : "BOMBER-2";
+        const label = shortModel((state.agent_models || {})[pid]).toUpperCase();
         const color = pid === "p1" ? "#7c3aed" : "#e85d04";
         html += `<div class="death-entry">`;
         html += `<div style="color:${color};font-weight:bold">${label} killed at (${log.killed_at[0]},${log.killed_at[1]}) on tick ${log.tick}</div>`;
@@ -564,18 +704,32 @@ function updatePromptIO(state) {
         const input = state.agent_prompt_input?.[pid];
         const output = state.agent_prompt_output?.[pid];
 
-        if (input) {
+        if (input && inputEl) {
             inputEl.textContent = input;
         }
         if (output) {
-            outputEl.textContent = output;
-            // Auto-scroll to bottom to show latest
-            outputEl.scrollTop = outputEl.scrollHeight;
+            // Try to parse JSON and render action prominently
+            try {
+                const start = output.indexOf("{");
+                const end = output.lastIndexOf("}") + 1;
+                const parsed = JSON.parse(output.slice(start, end));
+                const action = parsed.action || "?";
+                const target = parsed.target ? ` → (${parsed.target[0]},${parsed.target[1]})` : "";
+                const reasoning = parsed.reasoning || "";
+                outputEl.innerHTML =
+                    `<div class="output-action-line">`+
+                    `<span class="output-action-badge action-${action}">${action}</span>`+
+                    (target ? `<span class="output-action-target">${target}</span>` : "") +
+                    `</div>`+
+                    `<div class="output-reasoning">${reasoning}</div>`;
+            } catch (e) {
+                outputEl.textContent = output;
+            }
         }
     }
 }
 
-// Toggle prompt panels
+// Toggle prompt input panels
 document.querySelectorAll(".prompt-toggle").forEach(btn => {
     btn.addEventListener("click", () => {
         const targetId = btn.dataset.target;
