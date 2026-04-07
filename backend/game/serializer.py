@@ -180,19 +180,44 @@ def _describe_brick_impact(grid, bx, by, W, H, reachable_set) -> str:
     return "isolated brick"
 
 
-def _build_bombs_text(state: GameState, player_id: str) -> str:
-    """List all active bombs."""
+def _build_bombs_merged(state: GameState, player_id: str, reachable_bricks: list, reachable_floor_set: set) -> str:
+    """Single merged bomb section: position, timing, blast, safety assessment."""
     if not state.bombs:
-        return "  No active bombs"
+        return "  No active bombs."
+
+    me = state.players[player_id]
+    my_pos = (me.pos[0], me.pos[1])
+
+    all_danger = set()
+    for b in state.bombs:
+        for c in compute_blast_cells(state.grid, b):
+            all_danger.add((c[0], c[1]))
 
     lines = []
     for b in state.bombs:
-        owner_label = "Your bomb" if b.owner == player_id else "Enemy bomb"
-        time_left = b.fuse_ticks / 10.0
         blast = compute_blast_cells(state.grid, b)
-        blast_str = "".join(f"({c[0]},{c[1]})" for c in blast)
-        lines.append(f"  {owner_label} at ({b.pos[0]},{b.pos[1]}) explodes in {time_left:.1f}s")
-        lines.append(f"    Blast zone: {blast_str}")
+        blast_set = set((c[0], c[1]) for c in blast)
+        owner_label = "YOUR bomb" if b.owner == player_id else "Enemy bomb"
+        explodes_at = state.tick + b.fuse_ticks
+        blast_str = " ".join(f"({c[0]},{c[1]})" for c in blast)
+        lines.append(f"  {owner_label} at ({b.pos[0]},{b.pos[1]}) — explodes tick {explodes_at} ({b.fuse_ticks} ticks / {b.fuse_ticks/10:.1f}s)")
+        lines.append(f"    Blast: {blast_str}")
+        if my_pos in blast_set:
+            lines.append(f"    ⚠ YOU ARE IN THE BLAST ZONE — ESCAPE NOW!")
+            safe_cells = [f"({my_pos[0]+dx},{my_pos[1]+dy})"
+                          for dx, dy in [(0,1),(0,-1),(1,0),(-1,0)]
+                          if (my_pos[0]+dx, my_pos[1]+dy) in reachable_floor_set
+                          and (my_pos[0]+dx, my_pos[1]+dy) not in all_danger]
+            if safe_cells:
+                lines.append(f"    Safe moves: {' '.join(safe_cells)}")
+            else:
+                lines.append(f"    WARNING: No safe adjacent cell — move further!")
+        else:
+            lines.append(f"    Your position {my_pos} is safe.")
+        # Flag any brick targets caught in this blast
+        hit_bricks = [(bx, by) for bx, by in reachable_bricks if (bx, by) in blast_set]
+        if hit_bricks:
+            lines.append(f"    Bricks in blast (will score): {' '.join(f'({bx},{by})' for bx,by in hit_bricks)}")
 
     return "\n".join(lines)
 
@@ -304,15 +329,9 @@ def _build_own_bomb_warning(state: GameState, player_id: str) -> str:
     lines = []
     for b in my_bombs:
         blast = compute_blast_cells(state.grid, b)
-        lethal_cells = [(c[0], c[1]) for c in blast]
-        lethal_str = " ".join(f"({c[0]},{c[1]})" for c in lethal_cells)
+        lethal_str = " ".join(f"({c[0]},{c[1]})" for c in blast)
         explodes_at = state.tick + b.fuse_ticks
-        lines.append(f"""
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-!! YOUR BOMB AT ({b.pos[0]},{b.pos[1]}) IS TICKING — {b.fuse_ticks} ticks left (explodes tick {explodes_at}) !!
-!! FORBIDDEN CELLS (you WILL die here): {lethal_str}
-!! DO NOT move to ANY of these cells as your destination!
-!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!""")
+        lines.append(f"⚠ YOUR BOMB at ({b.pos[0]},{b.pos[1]}) explodes tick {explodes_at} ({b.fuse_ticks} ticks) — FORBIDDEN destinations: {lethal_str}")
 
     return "\n".join(lines)
 
@@ -329,54 +348,32 @@ def serialize(state: GameState, player_id: str) -> str:
 
     # Build components
     ascii_grid = _build_ascii_grid(state, player_id, reachable_floor_set)
-    corridor_text = _build_corridor_text(reachable["corridors"], me.pos)
     brick_targets_text = _build_brick_targets(state, player_id, reachable["bricks"], reachable_floor_set)
-    bombs_text = _build_bombs_text(state, player_id)
-    danger_text = _build_danger_text(state, player_id, reachable["bricks"], reachable_floor_set)
+    bombs_text = _build_bombs_merged(state, player_id, reachable["bricks"], reachable_floor_set)
     score_text = score_situation(state, player_id)
     time_str = _format_time(state.time_remaining_ticks)
 
-    active_threats_text = _build_active_threats(state, player_id)
     own_bomb_warning = _build_own_bomb_warning(state, player_id)
+    warning_line = f"\n{own_bomb_warning}" if own_bomb_warning else ""
 
     return f"""=== BOMBER-{player_id[-1]} | Tick {state.tick} ===
-Score: YOU={me.score}  ENEMY={enemy.score}  |  Bricks remaining: {state.bricks_remaining}  |  Time: {time_str}
-{own_bomb_warning}
+Score: YOU={me.score}  ENEMY={enemy.score}  |  Bricks: {state.bricks_remaining}  |  Time: {time_str}{warning_line}
+
 MAP (15x13):
 {ascii_grid}
-Legend: # wall  b brick  . reachable floor  (space)=unreachable  1=you  2=enemy  *=your bomb  !=enemy bomb  X=active explosion  x=BLAST SHADOW (passable, but deadly when bomb detonates — pass through quickly, do NOT stop here)
+Legend: # wall  b brick  . floor  1=you  2=enemy  *=your bomb  !=enemy bomb  X=explosion  x=blast shadow (passable but lethal on detonation)
 
-REACHABLE PATHS:
-{corridor_text}
-
-BRICK TARGETS (you CANNOT move onto bricks — use "bomb from" positions as your target):
+BRICK TARGETS (bomb from adjacent tile, NOT from the brick itself):
 {brick_targets_text}
 
-ACTIVE BOMBS:
+BOMBS:
 {bombs_text}
 
-ACTIVE THREATS:
-{active_threats_text}
+SCORE: {score_text}
 
-DANGER:
-{danger_text}
-
-SCORE SITUATION:
-{score_text}
-
-IMPORTANT: Your target [x,y] must be a reachable floor tile (. or x on map). You CANNOT move onto bricks or walls.
-Blast shadow (x) tiles are PASSABLE — you can and MUST walk through them to escape after bombing. But your final destination should be a safe "." tile OUTSIDE the blast zone. If you are currently on an x tile, MOVE IMMEDIATELY through the x tiles to reach a safe "." tile — do NOT wait.
-Choose ONE action. Valid actions:
-  - "move"          — move to target: {{"reasoning": "...", "action": "move", "target": [x, y]}}
-  - "move_and_bomb" — move to target then place bomb: {{"reasoning": "...", "action": "move_and_bomb", "target": [x, y]}}
-  - "bomb_here"     — place bomb at current position: {{"reasoning": "...", "action": "bomb_here"}}
-  - "wait"          — stay in place, do nothing: {{"reasoning": "...", "action": "wait"}}
-Respond with ONE JSON line only.
-
-Rules:
-  - Target must be in reachable paths or brick targets list
-  - x (blast shadow) tiles are walkable but LETHAL when the bomb detonates — your target must be a "." tile beyond the blast zone
-  - If you are on an x tile, ESCAPE NOW — move through x tiles to reach a safe "." tile. NEVER wait on an x tile.
-  - Before placing a bomb, plan your escape route to a "." tile outside the cross-shaped blast
-  - Killing the enemy wins instantly regardless of score
-  - Destroying bricks scores +1 per brick"""
+Actions (respond with ONE JSON line):
+  {{"reasoning":"...","action":"move","target":[x,y]}}
+  {{"reasoning":"...","action":"move_and_bomb","target":[x,y]}}
+  {{"reasoning":"...","action":"bomb_here"}}
+  {{"reasoning":"...","action":"wait"}}
+Rules: target must be a reachable "." tile; x tiles are passable but your final destination must be outside the blast zone; killing enemy = instant win."""
