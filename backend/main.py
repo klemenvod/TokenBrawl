@@ -80,6 +80,7 @@ def state_to_dict(state: GameState) -> dict:
         "agent_prompt_input": state.agent_prompt_input,
         "agent_prompt_output": state.agent_prompt_output,
         "agent_models": state.agent_models,
+        "agent_illegal_move": state.agent_illegal_move,
     }
 
 
@@ -152,7 +153,7 @@ async def start_game():
         "p2": asyncio.Queue(),
     }
 
-    p1_model = "openai/gpt-5.4-mini"
+    p1_model = "openai/gpt-5.4"
     p2_model = "openai/gpt-5.4-mini"
 
     agents = {

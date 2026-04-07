@@ -56,6 +56,7 @@ class GameState:
     agent_prompt_input: dict[str, str] = field(default_factory=dict)
     agent_prompt_output: dict[str, str] = field(default_factory=dict)
     agent_models: dict[str, str] = field(default_factory=dict)
+    agent_illegal_move: dict[str, bool] = field(default_factory=lambda: {"p1": False, "p2": False})
 
 
 def create_initial_state() -> GameState:

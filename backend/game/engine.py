@@ -267,6 +267,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                 # Store thoughts for broadcast
                 state.agent_thoughts[pid] = reasoning
                 state.agent_last_action[pid] = action_type
+                state.agent_illegal_move[pid] = False
 
                 # Track action history (keep last 5)
                 state.agent_action_history[pid].append({
@@ -309,6 +310,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                 if not path:
                     state.agent_thoughts[pid] = f"Invalid move: no path to ({tx},{ty}). Target must be a reachable floor tile."
                     state.agent_last_action[pid] = f"{action_type} (FAILED)"
+                    state.agent_illegal_move[pid] = True
                     continue
 
                 movement_state[pid] = {

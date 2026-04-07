@@ -708,6 +708,7 @@ function updatePromptIO(state) {
             inputEl.textContent = input;
         }
         if (output) {
+            const illegal = state.agent_illegal_move?.[pid];
             // Try to parse JSON and render action prominently
             try {
                 const start = output.indexOf("{");
@@ -716,7 +717,11 @@ function updatePromptIO(state) {
                 const action = parsed.action || "?";
                 const target = parsed.target ? ` → (${parsed.target[0]},${parsed.target[1]})` : "";
                 const reasoning = parsed.reasoning || "";
+                const illegalBadge = illegal
+                    ? `<div class="output-illegal-badge">⚠ ILLEGAL MOVE</div>`
+                    : "";
                 outputEl.innerHTML =
+                    illegalBadge +
                     `<div class="output-action-line">`+
                     `<span class="output-action-badge action-${action}">${action}</span>`+
                     (target ? `<span class="output-action-target">${target}</span>` : "") +
