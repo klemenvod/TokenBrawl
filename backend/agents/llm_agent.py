@@ -112,6 +112,9 @@ class LLMAgent:
             return {"action": "wait", "reasoning": "empty response from model"}
         text = content.strip()
         logger.info("[%s] LLM raw response: %s", self.player_id, text[:200])
+        # Store prompt I/O in game state
+        self.state_ref[0].agent_prompt_input[self.player_id] = prompt
+        self.state_ref[0].agent_prompt_output[self.player_id] = text
         # Extract JSON — handle cases where model adds extra text
         start = text.find("{")
         end = text.rfind("}") + 1

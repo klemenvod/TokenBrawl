@@ -184,6 +184,91 @@
         .death-entry .action-line {
             color: #cc8888;
         }
+        #prompt-io-container {
+            display: flex;
+            width: 720px;
+            gap: 0;
+            margin-top: 8px;
+        }
+        .prompt-panel {
+            flex: 1;
+            background: #0a1628;
+            border: 1px solid #333;
+            padding: 10px 12px;
+        }
+        .prompt-panel:first-child {
+            border-radius: 4px 0 0 4px;
+            border-right: none;
+        }
+        .prompt-panel:last-child {
+            border-radius: 0 4px 4px 0;
+        }
+        .prompt-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .prompt-panel-header h3 {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        #p1-prompt-title { color: #7c3aed; }
+        #p2-prompt-title { color: #e85d04; }
+        .prompt-toggle {
+            font-size: 11px;
+            color: #888;
+            background: none;
+            border: 1px solid #444;
+            border-radius: 3px;
+            padding: 1px 6px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+        }
+        .prompt-toggle:hover { color: #ccc; border-color: #888; }
+        .prompt-section-label {
+            font-size: 10px;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 3px;
+            margin-top: 6px;
+        }
+        .prompt-section-label:first-of-type { margin-top: 0; }
+        .prompt-text {
+            font-size: 10px;
+            color: #7db87d;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 120px;
+            overflow-y: auto;
+            background: #060e1a;
+            border: 1px solid #1e2e1e;
+            border-radius: 2px;
+            padding: 4px 6px;
+        }
+        .prompt-output-text {
+            font-size: 10px;
+            color: #f0c060;
+            line-height: 1.4;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 80px;
+            overflow-y: auto;
+            background: #1a1400;
+            border: 1px solid #2e2800;
+            border-radius: 2px;
+            padding: 4px 6px;
+        }
+        .prompt-placeholder {
+            font-size: 10px;
+            color: #444;
+            font-style: italic;
+        }
+        .prompt-body { display: block; }
+        .prompt-body.collapsed { display: none; }
     </style>
 </head>
 <body>
@@ -219,6 +304,32 @@
     <button id="start-btn">START</button>
     <div id="death-log"></div>
     <button id="restart-btn">RESTART</button>
+    <div id="prompt-io-container">
+        <div class="prompt-panel">
+            <div class="prompt-panel-header">
+                <h3 id="p1-prompt-title">BOMBER-1 LLM I/O</h3>
+                <button class="prompt-toggle" data-target="p1-prompt-body">collapse</button>
+            </div>
+            <div id="p1-prompt-body" class="prompt-body">
+                <div class="prompt-section-label">Prompt Input</div>
+                <div id="p1-prompt-input" class="prompt-text"><span class="prompt-placeholder">No prompt yet...</span></div>
+                <div class="prompt-section-label">LLM Output</div>
+                <div id="p1-prompt-output" class="prompt-output-text"><span class="prompt-placeholder">No response yet...</span></div>
+            </div>
+        </div>
+        <div class="prompt-panel">
+            <div class="prompt-panel-header">
+                <h3 id="p2-prompt-title">BOMBER-2 LLM I/O</h3>
+                <button class="prompt-toggle" data-target="p2-prompt-body">collapse</button>
+            </div>
+            <div id="p2-prompt-body" class="prompt-body">
+                <div class="prompt-section-label">Prompt Input</div>
+                <div id="p2-prompt-input" class="prompt-text"><span class="prompt-placeholder">No prompt yet...</span></div>
+                <div class="prompt-section-label">LLM Output</div>
+                <div id="p2-prompt-output" class="prompt-output-text"><span class="prompt-placeholder">No response yet...</span></div>
+            </div>
+        </div>
+    </div>
     <script src="/static/game.js"></script>
 </body>
 </html>

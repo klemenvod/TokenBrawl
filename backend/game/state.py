@@ -53,6 +53,8 @@ class GameState:
     agent_target: dict = field(default_factory=dict)  # {pid: {"pos": [x,y], "bomb": bool} | None}
     agent_action_history: dict[str, list] = field(default_factory=lambda: {"p1": [], "p2": []})
     death_log: dict[str, list] = field(default_factory=dict)
+    agent_prompt_input: dict[str, str] = field(default_factory=dict)
+    agent_prompt_output: dict[str, str] = field(default_factory=dict)
 
 
 def create_initial_state() -> GameState:

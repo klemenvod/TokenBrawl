@@ -147,6 +147,7 @@ function connectWS() {
         updateHUD(state);
         updateThoughts(state);
         updateDeathLog(state);
+        updatePromptIO(state);
 
         if (state.game_over) {
             restartBtn.style.display = "block";
@@ -296,12 +297,12 @@ function render(state) {
     }
 
     // 4. Draw players
-    const now = performance.now();
+    const nowPerf = performance.now();
     for (const pid of ["p1", "p2"]) {
         const player = state.players[pid];
         if (!player.alive) continue;
 
-        const interpPos = getInterpPos(pid, now);
+        const interpPos = getInterpPos(pid, nowPerf);
         const px = interpPos.x * TILE + TILE / 2;
         const py = interpPos.y * TILE + TILE / 2;
         const color = pid === "p1" ? COLOR_P1 : COLOR_P2;
@@ -553,6 +554,41 @@ function updateDeathLog(state) {
     deathLogEl.innerHTML = html;
     deathLogEl.style.display = "block";
 }
+
+// --- Prompt I/O ---
+function updatePromptIO(state) {
+    for (const pid of ["p1", "p2"]) {
+        const inputEl = document.getElementById(`${pid}-prompt-input`);
+        const outputEl = document.getElementById(`${pid}-prompt-output`);
+
+        const input = state.agent_prompt_input?.[pid];
+        const output = state.agent_prompt_output?.[pid];
+
+        if (input) {
+            inputEl.textContent = input;
+        }
+        if (output) {
+            outputEl.textContent = output;
+            // Auto-scroll to bottom to show latest
+            outputEl.scrollTop = outputEl.scrollHeight;
+        }
+    }
+}
+
+// Toggle prompt panels
+document.querySelectorAll(".prompt-toggle").forEach(btn => {
+    btn.addEventListener("click", () => {
+        const targetId = btn.dataset.target;
+        const body = document.getElementById(targetId);
+        if (body.classList.contains("collapsed")) {
+            body.classList.remove("collapsed");
+            btn.textContent = "collapse";
+        } else {
+            body.classList.add("collapsed");
+            btn.textContent = "expand";
+        }
+    });
+});
 
 // Animation loop for smooth bomb pulsing
 function animationLoop() {

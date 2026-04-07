@@ -77,6 +77,8 @@ def state_to_dict(state: GameState) -> dict:
         "agent_thinking": state.agent_thinking,
         "agent_target": state.agent_target,
         "death_log": state.death_log,
+        "agent_prompt_input": state.agent_prompt_input,
+        "agent_prompt_output": state.agent_prompt_output,
     }
 
 
