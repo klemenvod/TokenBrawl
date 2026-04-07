@@ -74,9 +74,10 @@ class LLMAgent:
             finally:
                 self.thinking = False
 
-            # Ignore stale responses (older than 15 ticks)
+            # Ignore stale responses (older than 80 ticks / 8s — just under the 10s LLM timeout)
             current_tick = self.state_ref[0].tick
-            if current_tick - prompt_tick > 15:
+            if current_tick - prompt_tick > 80:
+                self.state_ref[0].agent_illegal_move[self.player_id] = "response too slow (discarded)"
                 continue
 
             if action:
@@ -116,6 +117,7 @@ class LLMAgent:
         # Store prompt I/O in game state
         self.state_ref[0].agent_prompt_input[self.player_id] = prompt
         self.state_ref[0].agent_prompt_output[self.player_id] = text
+        self.state_ref[0].agent_illegal_move[self.player_id] = None
         # Extract JSON — handle cases where model adds extra text
         start = text.find("{")
         end = text.rfind("}") + 1

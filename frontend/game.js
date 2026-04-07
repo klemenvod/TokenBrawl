@@ -718,7 +718,7 @@ function updatePromptIO(state) {
                 const target = parsed.target ? ` → (${parsed.target[0]},${parsed.target[1]})` : "";
                 const reasoning = parsed.reasoning || "";
                 const illegalBadge = illegal
-                    ? `<div class="output-illegal-badge">⚠ ILLEGAL MOVE</div>`
+                    ? `<div class="output-illegal-badge">⚠ ${illegal}</div>`
                     : "";
                 outputEl.innerHTML =
                     illegalBadge +

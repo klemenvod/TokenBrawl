@@ -267,7 +267,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                 # Store thoughts for broadcast
                 state.agent_thoughts[pid] = reasoning
                 state.agent_last_action[pid] = action_type
-                state.agent_illegal_move[pid] = False
+                state.agent_illegal_move[pid] = None
 
                 # Track action history (keep last 5)
                 state.agent_action_history[pid].append({
@@ -293,6 +293,8 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                             fuse_ticks=60,
                             blast_radius=state.players[pid].blast_radius,
                         ))
+                    else:
+                        state.agent_illegal_move[pid] = "bomb already active"
                     continue
 
                 if target is None:
@@ -310,7 +312,7 @@ async def run_game_loop(state_ref: list, broadcast_fn, action_queues: dict, agen
                 if not path:
                     state.agent_thoughts[pid] = f"Invalid move: no path to ({tx},{ty}). Target must be a reachable floor tile."
                     state.agent_last_action[pid] = f"{action_type} (FAILED)"
-                    state.agent_illegal_move[pid] = True
+                    state.agent_illegal_move[pid] = f"unreachable tile ({tx},{ty})"
                     continue
 
                 movement_state[pid] = {
