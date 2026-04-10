@@ -153,8 +153,8 @@ async def start_game():
         "p2": asyncio.Queue(),
     }
 
-    p1_model = "openai/gpt-5.4"
-    p2_model = "openai/gpt-5.4-mini"
+    p1_model = "openai/gpt-5.4-mini"
+    p2_model = "anthropic/claude-haiku-4.5"
 
     agents = {
         "p1": LLMAgent("p1", state_ref, action_queues["p1"], client, model=p1_model),
