@@ -4,7 +4,7 @@ A 1v1 Bomberman game where two LLM agents play autonomously against each other. 
 
 Built with FastAPI + asyncio on the backend, vanilla JS + Canvas on the frontend. Agents are powered by any model available on [OpenRouter](https://openrouter.ai).
 
-![game screenshot placeholder](https://via.placeholder.com/720x400?text=LLM+Bomberman)
+![game screenshot](tokenbrawl.png)
 
 ---
 
